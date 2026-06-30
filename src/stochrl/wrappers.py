@@ -1,0 +1,50 @@
+"""Gymnasium wrappers that inject observation / action noise via a NoiseModel.
+
+Design follows MDP Playground's idea: stochasticity is a *wrapper* layered on an
+unmodified environment, so the same noise spec applies to any continuous-control
+task and can be toggled / swept without touching the physics.
+
+Two distinct effects (Section 3.1 of the paper):
+  * Observation noise breaks the Markov property  -> POMDP.
+  * Action noise gets absorbed by the dynamics     -> a transformed MDP.
+We keep them as separate wrappers so a benchmark can study them independently.
+"""
+
+from __future__ import annotations
+
+import gymnasium as gym
+import numpy as np
+
+from .noise import NoiseModel
+
+
+class ObservationNoise(gym.ObservationWrapper):
+    """Apply a NoiseModel to observations returned to the agent."""
+
+    def __init__(self, env, model: NoiseModel, seed: int = 0):
+        super().__init__(env)
+        self.model = model
+        self._rng = np.random.default_rng(seed)
+
+    def reset(self, **kwargs):
+        self.model.reset(self._rng)
+        return super().reset(**kwargs)
+
+    def observation(self, obs):
+        return self.model(obs, self._rng)
+
+
+class ActionNoise(gym.ActionWrapper):
+    """Apply a NoiseModel to actions before they reach the environment."""
+
+    def __init__(self, env, model: NoiseModel, seed: int = 0):
+        super().__init__(env)
+        self.model = model
+        self._rng = np.random.default_rng(seed)
+
+    def reset(self, **kwargs):
+        self.model.reset(self._rng)
+        return super().reset(**kwargs)
+
+    def action(self, action):
+        return self.model(action, self._rng)
