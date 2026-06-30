@@ -1,0 +1,21 @@
+# Python-generated files
+__pycache__/
+*.py[oc]
+build/
+dist/
+wheels/
+*.egg-info
+
+# Virtual environments
+.venv
+
+runs/
+figures/
+__pycache__/
+*.pyc
+results/
+results_statedep/
+!assets/
+results_cleanrl/
+results_rho005/
+results_rho020/
