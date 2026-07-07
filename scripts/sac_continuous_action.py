@@ -84,9 +84,15 @@ def build_noise(env, args, seed):
         stats = collect_signal_stats(gym.make(args.env_id), steps=args.calib_steps, seed=args.calib_seed)
         if args.noise_mode == "realistic":
             model = presets.realistic_sensors(stats, rho=args.rho)
-        elif args.noise_mode in ("vel-flat", "vel-statedep"):
-            model = presets.velocity_isolation(
+        elif args.noise_mode in ("vel-flat", "vel-statedep", "pos-flat", "pos-statedep"):
+            model = presets.channel_isolation(
                 stats, args.rho, args.env_id, args.noise_mode, args.calib_steps, args.calib_seed)
+        elif args.noise_mode.startswith("both-"):
+            kinds = {"f": "flat", "s": "statedep"}
+            code = args.noise_mode.split("-")[1]  # e.g. 'sf' -> vel=statedep, pos=flat
+            model = presets.combined_isolation(
+                stats, args.rho, args.env_id, kinds[code[0]], kinds[code[1]],
+                args.calib_steps, args.calib_seed)
         else:
             model = presets.uniform_gaussian(
                 stats, rho=args.rho, calibrated=(args.noise_mode == "uniform-calibrated"))

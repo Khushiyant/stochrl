@@ -88,6 +88,30 @@ flat uniform noise:
   Swapping the literal CleanRL code in reproduced earlier results bit-for-bit,
   confirming the baseline was a faithful reproduction.
 
+### Evaluation protocol
+
+- **Metric.** Episodic return of the *deterministic* (mean-action) policy, averaged
+  over N episodes on a **clean, noise-free** copy of the environment. Training runs
+  under noise; evaluation never does — this separates *learning damage* (did noise
+  corrupt what was learned?) from an *execution handicap* (is the agent merely blind
+  at test time?). Only clean evaluation isolates the former.
+- **Aggregation.** Per mode we report the **interquartile mean (IQM)** across seeds
+  with a **95% percentile-bootstrap CI** (Agarwal et al., 2021) rather than mean±std:
+  IQM down-weights outlier seeds and the CI states uncertainty directly. IQM only
+  trims at ≥4 seeds; below that it reduces to the mean and figures are labelled
+  "mean" accordingly (no false robustness claim).
+- **Seed count & CI honesty.** Percentile bootstrap CIs are anti-conservative at
+  small n (≈75% real coverage at n=3, ≈90% at n=10 for a nominal 95% interval). The
+  state-dependence experiments (§4b) use **8 seeds** (IQM trims the middle 4); the
+  noise-mode (§4a) and `rho` (§4c) sweeps use 3 (labelled "mean", to be scaled).
+  Treat CIs as indicative until seeds are plentiful.
+- **Controls.** All modes share seeds; a single **fixed calibration** (not the
+  training seed) sets the per-channel scale; state-dependence experiments **match
+  average injected variance** between flat and statedep so only *placement* differs;
+  observation / action / calibration draw from independent RNG streams.
+- **Significance.** A difference is called meaningful only when the 95% CIs do not
+  overlap; everything else is reported as a trend.
+
 ---
 
 ## 4. Results
@@ -108,29 +132,52 @@ flat uniform noise:
    (49%) and `uniform-calibrated` (45%) overlap within seed variance, raising the
    question §4b answers directly.
 
-### 4b. Does *where* the noise lands matter? (state-dependence, isolated)
+### 4b. Does *where* the noise lands matter? (state-dependence)
 
-To test state-dependence on its own, two settings put the **same total noise** on
-the velocity channels, differing only in placement: `vel-flat` spreads it evenly;
-`vel-statedep` concentrates it at high speed (matched average variance, verified
-within 2%).
+Each experiment puts the **same total noise** on a sensor group, differing only in
+*placement*: `flat` spreads it evenly over time; `statedep` concentrates it where the
+channel deviates most from typical (matched average variance, verified to ~1%). All
+state-dependence runs use **8 seeds** with IQM + 95% bootstrap CI.
 
-![State-dependence isolation](assets/statedep_curves.png)
+**Velocity sensors — placement matters, significantly:**
 
-| Setting | Final clean-eval return | vs. clean |
+![Velocity state-dependence](assets/statedep_curves.png)
+
+| velocity noise | IQM | 95% CI | vs. clean |
+|---|---:|---:|---:|
+| flat | 3355 | [2895, 3671] | 72% |
+| state-dependent | 2523 | [2215, 2724] | 54% |
+
+Concentrating the same noise at high-speed moments costs SAC ~18 points (72% → 54%),
+and the **CIs do not overlap** — a genuine effect, not seed noise.
+
+**Position (joint-angle) sensors — barely matters:**
+
+![Position state-dependence](assets/statedep_pos_curves.png)
+
+| position noise | IQM | 95% CI | vs. clean |
+|---|---:|---:|---:|
+| flat | 4329 | [3885, 4812] | 92% |
+| state-dependent | 4184 | [3989, 4499] | 89% |
+
+Position noise hardly dents performance, and flat vs state-dependent overlap.
+→ **Velocity sensing is the vulnerability; position sensing is robust.**
+
+**Both groups noisy at once (2×2) — which timing drives it?**
+
+![Both-sensor 2x2](assets/both_final.png)
+
+| both sensors noisy | IQM | vs. clean |
 |---|---:|---:|
-| `none` | 4726 ± 68 | 100% |
-| `vel-flat` (noise spread evenly) | 3269 ± 327 | 69% |
-| `vel-statedep` (noise concentrated at high speed) | 2489 ± 112 | 53% |
+| both flat | 3252 | 69% |
+| **velocity** state-dep, position flat | 2542 | 54% |
+| velocity flat, **position** state-dep | 2842 | 61% |
+| both state-dependent | 2522 | 54% |
 
-**Yes — placement matters, decisively.** With the *same total noise*, concentrating
-it on the high-speed (dynamically critical) states costs SAC ~16 points more than
-spreading it evenly (53% vs 69% of clean). Unlike the §4a rankings, this gap is
-robust: the std bands don't overlap, and `vel-statedep` is remarkably consistent
-across seeds (±112). So **state-dependence is a real, separable effect that
-per-channel calibration alone does not capture** — it earns its place as a benchmark
-axis. (This is the direct answer to "should noise depend on the state?": for *where*
-it hurts most, yes.)
+**Velocity timing dominates.** Adding state-dependence to velocity drops 69% → 54%;
+adding it to position only reaches 61%; doing both (54%) is no worse than velocity
+alone — the effects **don't compound**. The message is consistent across all three:
+*state-dependence matters where the sensor matters, and that's velocity.*
 
 ### 4c. How damage scales with noise level
 

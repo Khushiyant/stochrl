@@ -20,6 +20,12 @@ MODE_STYLE = {
     "realistic":          ("0.10", "-.", "D", "xx",  "realistic (structured)"),
     "vel-flat":           ("0.45", "--", "s", "\\\\", "velocity noise, flat (state-indep.)"),
     "vel-statedep":       ("0.0",  "-",  "D", "xx",  "velocity noise, state-dependent"),
+    "pos-flat":           ("0.45", "--", "s", "\\\\", "position noise, flat (state-indep.)"),
+    "pos-statedep":       ("0.0",  "-",  "D", "xx",  "position noise, state-dependent"),
+    "both-ff":            ("0.55", "--", "s", "//",  "both flat"),
+    "both-sf":            ("0.30", ":",  "^", "..",  "velocity state-dep, position flat"),
+    "both-fs":            ("0.15", "-.", "v", "\\\\", "velocity flat, position state-dep"),
+    "both-ss":            ("0.0",  "-",  "D", "xx",  "both state-dependent"),
 }
 
 

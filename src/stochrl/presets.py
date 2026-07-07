@@ -72,57 +72,100 @@ def realistic_sensors(stats: SignalStats, rho: float = 0.05, n_pos: int | None =
     return N.NoiseModel(dim, scale, specs, record=record)
 
 
-def _speed_gain_fn(vel_idx, vel_scale):
-    """gain(state) = 0.5 + |velocity| / signal_scale, per velocity channel."""
+def _deflection_gain(idx, scale, center):
+    """gain(state) = 0.5 + |x - center| / signal_scale, per channel.
+
+    Concentrates noise where a channel deviates most from its typical value:
+    fast motion for velocities (center ~ 0), large deflections for positions.
+    """
+    idx, scale, center = list(idx), np.asarray(scale), np.asarray(center)
+
     def gain_fn(ref):
-        return 0.5 + np.abs(np.asarray(ref)[vel_idx]) / vel_scale
+        return 0.5 + np.abs(np.asarray(ref)[idx] - center) / scale
     return gain_fn
 
 
-def measure_matched_gain(env, vel_idx, vel_scale, steps=10_000, seed=0):
-    """RMS of the state-dependent speed gain over a random rollout, per channel.
+def _matched_constant_gain(env, gain_fn, n, steps=10_000, seed=0):
+    """RMS of a state-dependent gain over a random rollout, per channel.
 
-    Used to build a state-INDEPENDENT noise with the SAME average injected variance:
-    injected var per step ~ (rho*scale*gain)^2, so a constant gain c = sqrt(E[gain^2])
-    matches the time-averaged variance of the state-dependent version exactly.
+    Lets a state-INDEPENDENT ('flat') noise match the state-dependent one's average
+    injected variance: injected var per step ~ (rho*scale*gain)^2, so a constant
+    gain c = sqrt(E[gain^2]) reproduces the time-averaged variance exactly. The two
+    then differ only in *where* the noise lands, not in how much.
     """
     obs, _ = env.reset(seed=seed)
     env.action_space.seed(seed)
-    gain_fn = _speed_gain_fn(vel_idx, vel_scale)
-    acc, n = np.zeros(len(vel_idx)), 0
+    acc, count = np.zeros(n), 0
     for _ in range(steps):
         obs, _, term, trunc, _ = env.step(env.action_space.sample())
         acc += gain_fn(obs) ** 2
-        n += 1
+        count += 1
         if term or trunc:
             obs, _ = env.reset()
-    return np.sqrt(acc / n)
+    return np.sqrt(acc / count)
 
 
-def velocity_isolation(stats: SignalStats, rho: float, env_id: str, mode: str,
-                       calib_steps: int = 10_000, calib_seed: int = 0,
-                       record: bool = False) -> N.NoiseModel:
-    """Isolate the EFFECT of state-dependence: identical Gaussian noise on the
-    velocity channels, either spread evenly (vel-flat) or concentrated at high
-    speed (vel-statedep), at MATCHED average injected variance.
+def channel_isolation(stats: SignalStats, rho: float, env_id: str, mode: str,
+                      calib_steps: int = 10_000, calib_seed: int = 0, n_pos: int | None = None,
+                      n_root_pos: int = 2, record: bool = False) -> N.NoiseModel:
+    """State-dependence isolation on one channel group, at matched noise energy.
 
-    The only difference between the two is *where* the noise lands, so any learning
-    difference is attributable to state-dependence, not to total noise amount.
+    Applies identical calibrated Gaussian noise to either the position or velocity
+    channels, placed either evenly ('*-flat') or concentrated where the channel
+    deviates most from its typical value ('*-statedep'). Flat and statedep inject the
+    same average variance (matched via `_matched_constant_gain`), so any learning gap
+    is attributable to *where* the noise lands, not to how much.
+
+    Position noise targets the joint-angle sensors only, skipping the first
+    `n_root_pos` channels (root height/pitch): under a random policy those are
+    non-stationary, so their calibration mean doesn't transfer and would break the
+    matched-energy control. (For planar MuJoCo — HalfCheetah/Hopper/Walker — the root
+    pose is the first 2 observation channels.)
+
+    mode: 'vel-flat' | 'vel-statedep' | 'pos-flat' | 'pos-statedep'
+      velocity rule: noisier when moving fast; position rule: noisier at large deflection.
     """
     dim = len(stats.std)
-    n_pos = dim // 2
-    vel_idx = list(range(n_pos, dim))
-    vel_scale = stats.scale[vel_idx]
+    n_pos = dim // 2 if n_pos is None else n_pos
+    group, kind = mode.split("-")
+    idx = list(range(n_root_pos, n_pos)) if group == "pos" else list(range(n_pos, dim))
+    if not idx or kind not in ("flat", "statedep") or group not in ("pos", "vel"):
+        raise ValueError(f"unknown isolation mode: {mode}")
 
-    if mode == "vel-statedep":
-        gain_fn = _speed_gain_fn(vel_idx, vel_scale)
-    elif mode == "vel-flat":
-        c = measure_matched_gain(gym.make(env_id), vel_idx, vel_scale, calib_steps, calib_seed)
+    gain_fn = _deflection_gain(idx, stats.scale[idx], stats.mean[idx])
+    if kind == "flat":
+        c = _matched_constant_gain(gym.make(env_id), gain_fn, len(idx), calib_steps, calib_seed)
         gain_fn = lambda ref: c  # constant, matched to RMS of the state-dependent gain
-    else:
-        raise ValueError(f"unknown velocity-isolation mode: {mode}")
 
-    specs = [N.ChannelNoise(vel_idx, N.Gaussian(relative=rho), gain_fn=gain_fn)]
+    specs = [N.ChannelNoise(idx, N.Gaussian(relative=rho), gain_fn=gain_fn)]
+    return N.NoiseModel(dim, stats.scale, specs, record=record)
+
+
+def _const_gain(c):
+    """Constant (state-independent) gain, with c bound at definition time."""
+    return lambda ref: c
+
+
+def combined_isolation(stats: SignalStats, rho: float, env_id: str, vel_kind: str, pos_kind: str,
+                       calib_steps: int = 10_000, calib_seed: int = 0, n_pos: int | None = None,
+                       n_root_pos: int = 2, record: bool = False) -> N.NoiseModel:
+    """Noise on BOTH velocity and (joint) position channels at once, each independently
+    'flat' or 'statedep', at matched per-group energy. Tests whether state-dependence on
+    the two groups interacts — only the timing per group changes, not the amount.
+    """
+    dim = len(stats.std)
+    n_pos = dim // 2 if n_pos is None else n_pos
+    groups = [("vel", list(range(n_pos, dim)), vel_kind),
+              ("pos", list(range(n_root_pos, n_pos)), pos_kind)]
+    specs = []
+    for _, idx, kind in groups:
+        gain_fn = _deflection_gain(idx, stats.scale[idx], stats.mean[idx])
+        if kind == "flat":
+            gain_fn = _const_gain(_matched_constant_gain(gym.make(env_id), gain_fn, len(idx),
+                                                         calib_steps, calib_seed))
+        elif kind != "statedep":
+            raise ValueError(f"kind must be flat|statedep, got {kind}")
+        specs.append(N.ChannelNoise(idx, N.Gaussian(relative=rho), gain_fn=gain_fn))
     return N.NoiseModel(dim, stats.scale, specs, record=record)
 
 

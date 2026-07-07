@@ -19,9 +19,12 @@ import numpy as np
 import tyro
 
 from stochrl.plotting import finish, set_style, style
+from stochrl.stats import bootstrap_ci, estimator_name
 
 # Plot modes in this canonical order when present.
-ORDER = ["none", "uniform", "uniform-calibrated", "realistic", "vel-flat", "vel-statedep"]
+ORDER = ["none", "uniform", "uniform-calibrated", "realistic",
+         "vel-flat", "vel-statedep", "pos-flat", "pos-statedep",
+         "both-ff", "both-sf", "both-fs", "both-ss"]
 
 
 def load(manifest_path):
@@ -57,14 +60,14 @@ def main(outdir: str = "results", figdir: str = "figures", prefix: str = "benchm
 
     # ---- Learning curves ---------------------------------------------------- #
     fig, ax = plt.subplots(figsize=(6.4, 4.2))
-    table = []
+    finals = []  # (mode, per-seed final returns)
     for mode in modes:
         shade, ls, marker, _, label = style(mode)
         grid, mat = stack_on_common_grid(by_mode[mode])
         mean, sd = mat.mean(0), mat.std(0)
         ax.plot(grid, mean, color=shade, ls=ls, marker=marker, markevery=2, label=label)
         ax.fill_between(grid, mean - sd, mean + sd, color=shade, alpha=0.12, lw=0)
-        table.append((mode, mat[:, -1].mean(), mat[:, -1].std(), mat.shape[0]))
+        finals.append((mode, mat[:, -1]))
     ax.set(xlabel="environment steps", ylabel="clean-eval episodic return")
     ax.set_title(f"SAC on {manifest['args']['env_id']} under observation noise "
                  fr"($\rho={manifest['args']['rho']}$, mean$\pm$std over seeds)")
@@ -72,27 +75,29 @@ def main(outdir: str = "results", figdir: str = "figures", prefix: str = "benchm
     finish(fig, ax)
     fig.savefig(f"{figdir}/{prefix}_curves.png")
 
-    # ---- Final-performance bar chart ---------------------------------------- #
+    # ---- Final performance: IQM + 95% bootstrap CI over seeds --------------- #
+    summary = [(mode, *bootstrap_ci(f), len(f)) for mode, f in finals]
+    est = estimator_name(min(s[4] for s in summary)) if summary else "IQM"
     fig, ax = plt.subplots(figsize=(6.0, 4.0))
-    for i, (mode, mean, sd, _) in enumerate(table):
+    for i, (mode, pt, lo, hi, _) in enumerate(summary):
         shade, _, _, hatch, _ = style(mode)
-        ax.bar(i, mean, yerr=sd, color=shade, edgecolor="black", hatch=hatch,
-               capsize=4, width=0.7)
-    ax.set_xticks(range(len(table)))
-    ax.set_xticklabels([style(t[0])[4] for t in table], rotation=25, ha="right")
-    ax.set(ylabel="final clean-eval return")
+        ax.bar(i, pt, yerr=[[pt - lo], [hi - pt]], color=shade, edgecolor="black",
+               hatch=hatch, capsize=4, width=0.7)
+    ax.set_xticks(range(len(summary)))
+    ax.set_xticklabels([style(s[0])[4] for s in summary], rotation=25, ha="right")
+    ax.set(ylabel=f"final clean-eval return ({est}, 95% CI)")
     ax.set_title(f"Final performance by noise mode ({manifest['args']['env_id']})")
     finish(fig, ax)
     fig.savefig(f"{figdir}/{prefix}_final.png")
 
     # ---- Console table ------------------------------------------------------ #
-    base = next((t[1] for t in table if t[0] == "none"), None)
+    base = next((s[1] for s in summary if s[0] == "none"), None)
     print(f"\nResults — {manifest['args']['env_id']}, rho={manifest['args']['rho']}, "
-          f"{manifest['args']['total_timesteps']} steps:\n")
-    print(f"  {'mode':24s} {'final return':>14s} {'+/- std':>10s} {'seeds':>6s} {'vs clean':>10s}")
-    for mode, mean, sd, n in table:
-        rel = f"{100 * mean / base:4.0f}%" if base else "n/a"
-        print(f"  {mode:24s} {mean:14.0f} {sd:10.0f} {n:6d} {rel:>10s}")
+          f"{manifest['args']['total_timesteps']} steps ({est} [95% CI] over seeds):\n")
+    print(f"  {'mode':24s} {est:>8s} {'95% CI':>18s} {'seeds':>6s} {'vs clean':>9s}")
+    for mode, pt, lo, hi, n in summary:
+        rel = f"{100 * pt / base:4.0f}%" if base else "n/a"
+        print(f"  {mode:24s} {pt:8.0f} {f'[{lo:.0f}, {hi:.0f}]':>18s} {n:6d} {rel:>9s}")
     print(f"\nSaved {figdir}/{prefix}_curves.png and {figdir}/{prefix}_final.png")
 
 

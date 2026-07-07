@@ -19,3 +19,7 @@ results_statedep/
 results_cleanrl/
 results_rho005/
 results_rho020/
+results_isolation/
+results_isolation8/
+results_both/
+results_sd8/
