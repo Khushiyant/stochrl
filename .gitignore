@@ -26,3 +26,5 @@ results_sd8/
 results_fixed/
 results_hopper/
 results_walker2d/
+results_fixed_hopper/
+results_fixed_walker2d/

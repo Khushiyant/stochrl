@@ -1,22 +1,30 @@
 # StochRL
 
-A benchmark for reinforcement learning under realistic sensor noise, built on Soft Actor Critic and MuJoCo.
+A benchmark for reinforcement learning under realistic sensor noise, built on Soft Actor Critic and MuJoCo (Gymnasium `HalfCheetah-v5`, `Hopper-v5`, `Walker2d-v5`).
 
-Most studies that test RL under noise add the same Gaussian jitter to every sensor. Real sensors do not behave that way. Some are noisier than others, some get worse in certain situations, and the errors are not always clean bell curves. StochRL adds noise the way real hardware does. It scales the noise to each sensor, lets it depend on what the robot is doing, and measures how much that changes what SAC learns.
+Most noise studies add the same Gaussian jitter to every sensor. Real sensors differ in scale, get worse in certain situations, and fail in non-Gaussian ways. StochRL scales noise to each sensor, lets it depend on the state, and measures the damage to learning: training always happens under noise, and every score is the return on a clean, noise free copy of the environment.
 
-The main experiments run on `HalfCheetah-v5`, with a smaller check on `Hopper-v5` and `Walker2d-v5`. Training always happens under noise, and every score is measured on a clean, noise free copy of the environment, so we see how much the noise damaged learning rather than how blind the agent is at test time.
+## Results
 
-## What we found
+**1. Scaling noise to each sensor makes the benchmark harder and fairer.** The usual baseline, one absolute amount everywhere, leaves SAC at 63% of its clean score; the same `rho` scaled per sensor drops it to 45%, and a realistic mix (drift, dropouts, rounding) to 49%. The absolute baseline looks mild only because it barely touches the large, fast sensors the controller depends on.
 
 ![Learning curves](assets/benchmark_curves.png)
 
-Noise hurts, and the usual way of adding it understates the damage. A single absolute amount barely touches the fast moving sensors, the ones the controller leans on, so scaling the noise to each sensor is fairer and clearly harder. The choice of that single amount also matters far more than it should: pinned low on the spread of sensor scales, the noise is mild; pinned at the mean, learning nearly stops.
+**2. A single fixed noise amount is an arbitrary experiment.** The one number has to be pinned somewhere on the spread of sensor scales, and that choice decides the outcome: on HalfCheetah, pinning at the 25th percentile leaves 85% of the clean score, at the mean 2%. The pattern holds on Hopper (105% at the lowest pin, 46% at the highest) and Walker2d (111% at the lowest, 74% at the worst), and no pin matches the scaled version on all three environments. A fixed amount means a different thing on every robot; `rho` scaled per sensor means the same thing everywhere.
 
-Where the noise lands matters as much as how much is added. The same total noise, aimed at the fast and busy moments, hurts far more than noise spread evenly over time. And the damage runs through the speed sensors: noise on the joint angles barely dents performance, while the same relative noise on the speed sensors is very damaging.
+![Fixed amount by pinning choice](assets/fixed_pinning.png)
 
-## All results in one place
+**3. Where the noise lands in time matters as much as how much there is.** With total noise held equal, concentrating velocity-sensor noise at the fast moments costs 72% → 54%, well outside the seed spread. The identical manipulation on position sensors does nothing (92% vs 89%). With both groups noisy, velocity timing alone explains the damage.
 
-Return is shown as a percentage of the no noise score, so higher is better.
+![Velocity timing](assets/statedep_curves.png)
+
+**4. Damage grows steeply with the noise level.** At 5 / 10 / 20% of each sensor's spread, calibrated noise leaves 80 / 45 / 18% of the clean score (realistic mix: 79 / 49 / 29%).
+
+![Score vs noise level](assets/rho_sweep.png)
+
+### Every number
+
+Return as a percentage of the no noise score for that study; higher is better.
 
 | Experiment | Condition | Return vs no noise | Seeds |
 |---|---|---|---|
@@ -29,6 +37,8 @@ Return is shown as a percentage of the no noise score, so higher is better.
 | | mean of sensor scales | 2% | 8 |
 | | 75th percentile of sensor scales | -1% | 8 |
 | | scaled to each sensor (8-seed rerun) | 53% | 8 |
+| Fixed pinning, Hopper-v5 | p25 / median / mean / p75 / scaled | 105%, 64%, 52%, 46%, 69% | 8 |
+| Fixed pinning, Walker2d-v5 | p25 / median / mean / p75 / scaled | 111%, 106%, 74%, 77%, 111% | 8 |
 | Velocity timing | steady over time | 72% | 8 |
 | | concentrated at fast moments | 54% | 8 |
 | Position timing | steady over time | 92% | 8 |
@@ -44,85 +54,46 @@ Return is shown as a percentage of the no noise score, so higher is better.
 
 ## How the noise is added
 
-Every sensor gets noise sized to its own normal range. For one sensor at one moment the rule is
+For one sensor at one moment:
 
 ```
 noise size = rho * (that sensor's normal spread) * (a state factor)
 ```
 
-`rho` is the single knob, set to 0.1, which means 10 percent. Flat noise keeps the state factor constant, so a sensor gets the same jitter whether the robot is calm or thrashing. State dependent noise keeps the total the same but concentrates it at the extreme moments: more noise at high speed for a speed sensor, more at large deflections for a joint angle. Sensors can also get richer patterns: positions get a little Gaussian noise plus rounding, like a real encoder, and velocities get slow drift plus the occasional dropped reading.
+Each sensor's normal spread is measured once from a 10,000 step random rollout (fixed seed, shared by every run). `rho` is the single knob, 0.1 by default. The state factor is 1 for flat noise; for state dependent noise it grows with distance from the sensor's typical value (fast motion, large deflection), and the flat control uses a constant matched to the same average variance, so the two differ only in timing. Richer patterns compose from Gaussian noise, Ornstein-Uhlenbeck drift, dropout, quantization, bias and delay.
 
-![Clean vs noisy signals](assets/02_trajectories.png)
-
-Sizing per sensor matters because the sensors are on very different scales. On HalfCheetah they span about forty times, so a single absolute amount is huge for the small sensors and invisible for the large ones.
+Sizing per sensor matters because the scales are heavily skewed: spans of 37x (HalfCheetah), 72x (Hopper) and 112x (Walker2d) between the smallest and largest channels, with a few fast velocity channels pulling the mean far above the median.
 
 ![Per sensor scale](assets/01_signal_scale.png)
 
-## The experiments
-
-### Noise style
-
-Adding noise at `rho = 0.1` drops SAC to between 45 and 63 percent of its clean score (learning curves above), and the clean run is still improving at the end while the noisy ones have flattened. The absolute amount version looks least harmful only because it barely perturbs the fast sensors; scaled to each sensor, the noise bites harder. The realistic mix lands in between.
-
-### Where the fixed amount is pinned
-
-The sensor scales that a single absolute amount summarises are heavily skewed: on HalfCheetah the 25th percentile is 0.28, the median 0.73, the mean 2.6 and the 75th percentile 6.1, because a few fast velocity channels pull the upper end. Pinning the fixed amount to each of those points gives completely different verdicts, from mild to fatal, with the per sensor scaled version in between. A benchmark built on one fixed number is largely a benchmark of where that number was pinned.
-
-![Fixed amount by pinning point](assets/fixed_pinning.png)
-
-### Where the noise lands
-
-Each condition here carries the same total noise and differs only in timing. On the velocity sensors the timing matters: concentrating the noise at the fast moments drops the score from 72 to 54 percent of clean, a gap well outside the spread across seeds. On the position sensors it barely does (92 versus 89 percent, within the seed spread). With both groups noisy at once the velocity timing does the damage: it drops 69 to 54 percent, position timing only reaches 61, and both together are no worse than velocity timing alone. State dependence matters where the sensor matters, and on HalfCheetah that is velocity.
-
-![Velocity timing](assets/statedep_curves.png)
-
-### How damage scales with the noise level
-
-![Score vs noise level](assets/rho_sweep.png)
-
-At 20 percent of each sensor's spread, SAC drops below a third of its clean score. The two styles look the same at low levels, and the realistic drift noise becomes somewhat less harmful as the level rises, probably because slow drift is more predictable than fresh random jitter. The spread across seeds is wide at 20 percent, so treat that gap as a trend.
-
-### Other environments
-
-The noise style study repeats on Hopper-v5 and Walker2d-v5 at 5 seeds. On Hopper the ordering flips: the absolute amount hurts more than the scaled version (42 versus 78 percent), most likely because Hopper's sensors sit on smaller scales, so the same absolute number is relatively larger there, and the realistic mix is the most damaging at 27 percent. Walker2d says less: even without noise SAC reaches only about 340 in 50,000 steps, versus roughly 4,700 on HalfCheetah, and at that level the three noise styles are indistinguishable.
-
-## Parameters and constants
-
-Everything the experiments and code depend on, in one place.
+## Setup
 
 | Setting | Value |
 |---|---|
-| Environment | HalfCheetah-v5 for the main studies; Hopper-v5 and Walker2d-v5 for the environment check |
-| Algorithm | Soft Actor Critic, CleanRL single file, run unchanged |
+| Algorithm | Soft Actor Critic, CleanRL single file, run unchanged (verbatim reproduction checked to the digit) |
 | Replay buffer | stable-baselines3 buffer, size 1,000,000 |
 | Network | two hidden layers of 256 units, ReLU, twin critics, tanh Gaussian policy |
-| Discount gamma | 0.99 |
-| Target smoothing tau | 0.005 |
-| Batch size | 256 |
-| Learning starts after | 5,000 steps |
-| Policy learning rate | 3e-4 |
-| Critic learning rate | 1e-3 |
+| Discount gamma / smoothing tau | 0.99 / 0.005 |
+| Batch size / learning starts | 256 / 5,000 steps |
+| Learning rates | policy 3e-4, critics 1e-3 |
 | Update schedule | policy every 2 steps, target networks every step |
 | Entropy temperature | tuned automatically, target entropy equal to minus the action dimension |
 | Log std range | negative 5 to positive 2 |
 | Training length | 50,000 steps per run, a short prototype budget (real studies use 1,000,000) |
 | Noise level rho | 0.1 by default, also 0.05 and 0.2 for the level sweep |
-| Calibration | each sensor's scale measured from a 10,000 step random rollout, fixed seed 0, shared by all runs |
+| Calibration | per-sensor spread from a 10,000 step random rollout, fixed seed 0, shared by all runs |
 | State factor, state dependent | 0.5 plus the distance from typical, in units of the sensor's own spread |
-| State factor, flat | a constant equal to the root mean square of the above, about 1.43, so both inject equal total noise |
-| Position channels used | joint angle sensors only, the first two (torso height and pitch) are left clean because they drift between runs |
-| Evaluation | 3 episodes on a clean environment every 2,500 steps, using the greedy mean action |
-| Seeds | 3 for the noise style and level studies, 8 for the state dependence and fixed amount studies, 5 for Hopper and Walker2d |
-| Aggregation | interquartile mean across seeds with a 95 percent bootstrap interval, falls back to the plain mean below 4 seeds |
-| Compute | CPU, 1 thread per run, 12 runs in parallel, which is fastest for these small networks |
+| State factor, flat | a constant equal to the root mean square of the above, so both inject equal total noise |
+| Position channels used | joint angle sensors only; the root pose channels are left clean because they drift between runs |
+| Random streams | observation noise, action noise, calibration, env and policy all seeded independently; identical seeds give byte-identical runs |
+| Evaluation | 3 episodes on a clean environment every 2,500 steps, greedy mean action |
+| Seeds | 3 for the noise style and level studies, 8 for the state dependence and fixed amount studies (all environments), 5 for the Hopper and Walker2d noise style check |
+| Aggregation | interquartile mean across seeds with a 95 percent bootstrap interval, plain mean below 4 seeds |
+| Compute | CPU, 1 thread per run, 12 runs in parallel |
 
-## Correctness and limits
+Limits: the budget is a short 50,000 steps everywhere; the 3-seed studies are plain means; Walker2d barely learns at this budget, so its numbers say little. The stochastic transition variant (jolting the world rather than the readings) and a comparison across learning algorithms are still to do.
 
-The SAC and noise code went through a line-by-line correctness review that caught and fixed four real bugs, among them a miscalibrated drift process and a calibration seed that varied between runs. Swapping in the exact CleanRL SAC reproduced our numbers to the digit, which confirms the baseline is faithful. Full notes live in AUDIT.md.
-
-The limits: the budget is a short 50,000 steps everywhere. The noise style and level studies use 3 seeds and are reported as plain means; the state dependence and fixed amount studies use 8 seeds with interquartile means and intervals; the Hopper and Walker2d checks use 5. Walker2d barely learns at this budget, so its numbers say little. The stochastic transition variant, where the world itself is jolted rather than the readings, and a comparison across learning algorithms are both still to do.
-
-## Reproduce it
+## Reproduce
 
 ```bash
 uv sync
@@ -135,11 +106,18 @@ uv run python scripts/run_benchmark.py --modes none uniform uniform-calibrated r
     --seeds 1 2 3 --total-timesteps 50000 --jobs 12 --threads-per-job 1 --outdir results_modes
 uv run python scripts/plot_results.py --outdir results_modes --figdir assets --prefix benchmark
 
-# fixed amount by pinning point
+# fixed amount by pinning point, on all three environments
 uv run python scripts/run_benchmark.py \
     --modes none fixed-p25 fixed-median fixed-mean fixed-p75 uniform-calibrated \
     --seeds 1 2 3 4 5 6 7 8 --total-timesteps 50000 --jobs 12 --threads-per-job 1 --outdir results_fixed
-uv run python scripts/plot_fixed.py --outdir results_fixed --figdir assets
+uv run python scripts/run_benchmark.py --env-id Hopper-v5 \
+    --modes none fixed-p25 fixed-median fixed-mean fixed-p75 uniform-calibrated \
+    --seeds 1 2 3 4 5 6 7 8 --total-timesteps 50000 --jobs 12 --threads-per-job 1 --outdir results_fixed_hopper
+uv run python scripts/run_benchmark.py --env-id Walker2d-v5 \
+    --modes none fixed-p25 fixed-median fixed-mean fixed-p75 uniform-calibrated \
+    --seeds 1 2 3 4 5 6 7 8 --total-timesteps 50000 --jobs 12 --threads-per-job 1 --outdir results_fixed_walker2d
+uv run python scripts/plot_fixed.py --figdir assets --pairs HalfCheetah-v5:results_fixed \
+    Hopper-v5:results_fixed_hopper Walker2d-v5:results_fixed_walker2d
 
 # state dependence study, velocity and position and both
 uv run python scripts/run_benchmark.py \
@@ -155,7 +133,7 @@ uv run python scripts/run_benchmark.py --modes uniform-calibrated realistic --se
 uv run python scripts/plot_rho.py --pairs 0.05:results_rho005 0.1:results_modes 0.2:results_rho020 \
     --clean-dir results_modes
 
-# other environments (repeat with Walker2d-v5 / results_walker2d / --prefix walker2d)
+# other environments, noise style (repeat with Walker2d-v5 / results_walker2d / --prefix walker2d)
 uv run python scripts/run_benchmark.py --env-id Hopper-v5 --modes none uniform uniform-calibrated realistic \
     --seeds 1 2 3 4 5 --total-timesteps 50000 --jobs 12 --threads-per-job 1 --outdir results_hopper
 uv run python scripts/plot_results.py --outdir results_hopper --figdir assets --prefix hopper
@@ -176,6 +154,6 @@ scripts/
   sac_continuous_action.py   the CleanRL SAC with noise switched in
   run_benchmark.py           run many seeds and modes in parallel
   plot_results.py            turn results into figures and tables
-  plot_fixed.py              the fixed-amount pinning figure
+  plot_fixed.py              the fixed-amount pinning figures
   plot_rho.py                the noise level figure
 ```
