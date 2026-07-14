@@ -1,12 +1,3 @@
-"""Estimate per-channel signal magnitude for noise calibration.
-
-Observation channels differ in scale by orders of magnitude (a joint angle
-spans ~1 rad, a joint velocity ~20 rad/s), so one absolute sigma perturbs
-them very unevenly. Rolling out a random policy and measuring each channel's
-spread lets noise be expressed relative to that spread: a single level rho
-then perturbs every channel by the same fraction of its natural variation.
-"""
-
 from __future__ import annotations
 
 from dataclasses import dataclass
@@ -25,14 +16,14 @@ class SignalStats:
 
     @property
     def scale(self) -> np.ndarray:
-        """Default scale used for calibration: std, floored away from zero."""
+        """Per-channel std, floored away from zero."""
         s = self.std.copy()
         floor = np.median(s[s > 0]) * 1e-3 if np.any(s > 0) else 1.0
         return np.maximum(s, floor)
 
 
 def collect_signal_stats(env: gym.Env, steps: int = 20_000, seed: int = 0) -> SignalStats:
-    """Run a random policy and summarise the per-channel observation distribution."""
+    """Per-channel observation stats from a random-policy rollout."""
     obs, _ = env.reset(seed=seed)
     env.action_space.seed(seed)
     buf = [np.asarray(obs, dtype=np.float64)]

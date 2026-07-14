@@ -1,11 +1,4 @@
-"""Bar chart: final return (% of clean) for the fixed noise amount pinned at
-each summary of the sensor-scale spread, next to the per-sensor scaled
-version, grouped by environment. Reads results dirs with fixed-<stat> runs
-plus 'none' and 'uniform-calibrated' anchors.
-
-  uv run python scripts/plot_fixed.py --figdir assets \
-      --pairs HalfCheetah-v5:results_fixed Hopper-v5:results_fixed_hopper Walker2d-v5:results_fixed_walker2d
-"""
+# usage: uv run python scripts/plot_fixed.py --figdir assets
 
 from __future__ import annotations
 

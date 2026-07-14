@@ -1,14 +1,3 @@
-"""Composable per-channel noise processes for control benchmarks.
-
-A NoiseModel assigns noise processes (Gaussian, OU drift, dropout,
-quantization, ...) to sets of channels. Each process expresses its strength
-relative to the channel's signal magnitude (see calibrate.py), so a single
-relative level rho is comparable across channels and environments. A
-per-channel gain_fn can additionally make the strength depend on the current
-state, e.g. a velocity sensor that gets noisier at speed. All randomness
-comes from an explicit numpy Generator so runs are reproducible.
-"""
-
 from __future__ import annotations
 
 from abc import ABC, abstractmethod
@@ -21,29 +10,23 @@ Array = np.ndarray
 
 
 class NoiseProcess(ABC):
-    """A noise pattern applied to a fixed-width slice of a signal vector.
-
-    `scale` is the per-channel signal magnitude set by calibration. Strength
-    is relative to it, so relative=0.1 means 10% of the channel's natural
-    variation regardless of units.
-    """
+    """Noise on a slice of a signal vector; strength is relative to the calibrated `scale`."""
 
     def bind(self, scale: Array) -> "NoiseProcess":
-        """Attach the calibrated signal scale for these channels."""
         self.scale = np.asarray(scale, dtype=np.float64)
         return self
 
     def reset(self, rng: np.random.Generator) -> None:
-        """Reset per-episode state (drift, bias, delay buffers)."""
+        """Reset per-episode state."""
 
     @abstractmethod
     def __call__(self, x: Array, rng: np.random.Generator, gain: Array) -> Array:
-        """Return a perturbed copy of `x`. `gain` is a per-channel state multiplier."""
+        ...
 
 
 @dataclass
 class Gaussian(NoiseProcess):
-    """Additive white noise: sigma = relative * signal_scale * gain(state)."""
+    """sigma = relative * scale * gain."""
 
     relative: float = 0.05
     scale: Array = field(default=None, repr=False)
@@ -55,11 +38,7 @@ class Gaussian(NoiseProcess):
 
 @dataclass
 class OrnsteinUhlenbeck(NoiseProcess):
-    """Temporally correlated noise (sensor drift), as a discrete AR(1) process.
-
-    Stationary std = relative * signal_scale. `theta` is the mean-reversion
-    rate; small theta gives a slowly drifting bias.
-    """
+    """Sensor drift as AR(1); stationary std = relative * scale, theta = mean reversion."""
 
     relative: float = 0.05
     theta: float = 0.15
@@ -74,15 +53,14 @@ class OrnsteinUhlenbeck(NoiseProcess):
         a = 1.0 - self.theta  # AR(1) coefficient; needs 0 < theta < 2 for stability
         if self._y is None:
             self._y = rng.normal(0.0, 1.0, size=x.shape) * std
-        # Stationary Var = std^2 exactly, from step 0. Don't swap in the
-        # continuous-time sqrt(2*theta) coefficient: at dt=1 it inflates the std.
+        # exact AR(1): stationary var = std^2 (the continuous-time sqrt(2*theta) inflates it at dt=1)
         self._y = a * self._y + std * np.sqrt(1.0 - a * a) * rng.normal(0.0, 1.0, size=x.shape)
         return x + self._y * gain
 
 
 @dataclass
 class MultiplicativeGaussian(NoiseProcess):
-    """Gain error: x *= (1 + eps). Unit-free, so it ignores signal_scale."""
+    """x *= (1 + eps); unit-free, ignores scale."""
 
     relative: float = 0.05
 
@@ -92,7 +70,7 @@ class MultiplicativeGaussian(NoiseProcess):
 
 @dataclass
 class Bias(NoiseProcess):
-    """Constant per-episode offset: a calibration error fixed at reset time."""
+    """Constant per-episode offset."""
 
     relative: float = 0.05
     scale: Array = field(default=None, repr=False)
@@ -109,11 +87,7 @@ class Bias(NoiseProcess):
 
 @dataclass
 class Dropout(NoiseProcess):
-    """Sensor dropout: each step a channel may go dead.
-
-    mode='zero' returns 0 (lost packet); mode='hold' repeats the last good
-    value (stuck sensor).
-    """
+    """Per-step channel dropout; mode='zero' or 'hold' (repeat last good value)."""
 
     prob: float = 0.05
     mode: str = "hold"
@@ -133,13 +107,12 @@ class Dropout(NoiseProcess):
 
 @dataclass
 class Quantization(NoiseProcess):
-    """ADC / encoder resolution: round to a finite number of levels per channel."""
+    """Round to `levels` steps over a +/-3 signal-scale range."""
 
     levels: int = 64
     scale: Array = field(default=None, repr=False)
 
     def __call__(self, x, rng, gain):
-        # quantize over a +/-3 signal-scale sensor range
         lo, hi = -3.0 * self.scale, 3.0 * self.scale
         step = (hi - lo) / max(self.levels - 1, 1)
         step = np.where(step == 0, 1.0, step)
@@ -148,7 +121,7 @@ class Quantization(NoiseProcess):
 
 @dataclass
 class Saturation(NoiseProcess):
-    """Sensor range limits: clip to +/- `limit` signal-scales."""
+    """Clip to +/- `limit` signal-scales."""
 
     limit: float = 3.0
     scale: Array = field(default=None, repr=False)
@@ -159,7 +132,7 @@ class Saturation(NoiseProcess):
 
 @dataclass
 class Delay(NoiseProcess):
-    """Observation latency: return the value from `steps` ago (FIFO buffer)."""
+    """Return the value from `steps` ago."""
 
     steps: int = 1
     _buf: deque = field(default=None, repr=False)
@@ -176,7 +149,7 @@ class Delay(NoiseProcess):
 
 @dataclass
 class Compose(NoiseProcess):
-    """Chain several processes on the same channels (e.g. drift -> quantize)."""
+    """Chain processes on the same channels."""
 
     processes: list = field(default_factory=list)
 
@@ -198,11 +171,7 @@ class Compose(NoiseProcess):
 
 @dataclass
 class ChannelNoise:
-    """Assign a NoiseProcess to a set of channel indices.
-
-    `gain_fn(ref) -> float | array` makes the noise strength depend on the
-    pre-noise observation. Defaults to a constant 1 (homoscedastic).
-    """
+    """A NoiseProcess on a set of channel indices; gain_fn(pre-noise obs) scales it, default 1."""
 
     indices: list
     process: NoiseProcess
@@ -216,13 +185,10 @@ class ChannelNoise:
 
 
 class NoiseModel:
-    """Applies per-channel noise to a vector.
+    """Applies ChannelNoise specs to a vector; uncovered channels pass through clean.
 
-    dim    : width of the signal vector (obs dim or action dim).
-    scale  : per-channel signal magnitude, length `dim` (from `calibrate`).
-             Pass ones(dim) for absolute, uncalibrated noise.
-    specs  : list of ChannelNoise. Channels not covered pass through clean.
-    record : keep per-step (clean, noisy) pairs in `self.history`.
+    `scale` comes from calibrate (ones(dim) for absolute noise); `record`
+    keeps per-step (clean, noisy) pairs in `self.history`.
     """
 
     def __init__(self, dim, scale, specs, record=False):

@@ -1,20 +1,7 @@
-"""Soft Actor-Critic (CleanRL) with pluggable calibrated noise.
-
-The algorithm is CleanRL's `sac_continuous_action.py` (Huang et al., 2022,
-JMLR): the networks, the get_action log-prob, the critic/actor/temperature
-update block and all hyperparameters are copied verbatim from
-https://github.com/vwxyzjn/cleanrl, with the same stable-baselines3
-`ReplayBuffer`. Two deviations:
-
-  1. A single-env loop instead of `SyncVectorEnv` with num_envs=1. CleanRL's
-     vector-autoreset code targets gymnasium 0.29 and we run 1.3, whose
-     autoreset API differs; a single env is equivalent to num_envs=1.
-  2. Noise wrappers, clean-env evaluation and CSV logging around the algorithm.
-
-Code between the "CleanRL verbatim" markers is unchanged CleanRL.
-
-  uv run python scripts/sac_continuous_action.py --env-id HalfCheetah-v5 --noise-mode realistic --rho 0.1
-"""
+# CleanRL SAC (https://github.com/vwxyzjn/cleanrl, Huang et al. 2022) with noise wrappers,
+# clean-env eval and CSV logging added. Code between the "CleanRL verbatim" markers is
+# unchanged CleanRL; the single-env loop is equivalent to num_envs=1 (gymnasium 1.3 autoreset).
+# usage: uv run python scripts/sac_continuous_action.py --env-id HalfCheetah-v5 --noise-mode realistic --rho 0.1
 
 from __future__ import annotations
 
@@ -72,15 +59,13 @@ class Args:
 
 
 def build_noise(env, args, seed):
-    """Wrap `env` with the requested noise model(s). Calibration uses a fixed seed
-    (constant treatment across runs); obs/action noise get independent RNG streams."""
+    # calibration seed is fixed across runs; obs/action noise get independent RNG streams
     if args.noise_mode == "none":
         return env
     obs_ss, act_ss = np.random.SeedSequence(seed).spawn(2)
     if args.noise_target in ("obs", "both"):
         stats = collect_signal_stats(gym.make(args.env_id), steps=args.calib_steps, seed=args.calib_seed)
-        # read the position/velocity split off the MuJoCo model rather than
-        # assuming half and half
+        # pos/vel split from the MuJoCo model
         try:
             n_pos = env.observation_space.shape[0] - int(env.unwrapped.model.nv)
         except Exception:
@@ -117,7 +102,7 @@ def make_env(args, seed):
 
 
 def evaluate(actor, env_id, episodes, device, seed):
-    """Mean-action evaluation on a clean (noise-free) env, comparable across modes."""
+    """Mean-action eval on a clean env."""
     eval_env = gym.make(env_id)
     returns = []
     for e in range(episodes):

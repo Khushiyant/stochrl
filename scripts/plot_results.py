@@ -1,12 +1,4 @@
-"""Aggregate benchmark CSVs into conference-style learning-curve + summary figures.
-
-Reads <outdir>/manifest.json and each run's CSV (columns: step,eval_return),
-groups by noise mode, and writes grayscale, black-and-white-safe figures:
-  <figdir>/<prefix>_curves.png   clean-eval return vs steps, mean +/- std over seeds
-  <figdir>/<prefix>_final.png    final-performance bar chart per noise mode
-
-  uv run python scripts/plot_results.py --outdir results --prefix benchmark
-"""
+# usage: uv run python scripts/plot_results.py --outdir results --prefix benchmark
 
 from __future__ import annotations
 

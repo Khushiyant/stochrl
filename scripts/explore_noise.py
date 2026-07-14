@@ -1,11 +1,4 @@
-"""Visualise the noise patterns on a continuous-control env.
-
-Produces three figures: the per-channel signal scale, clean vs noisy
-trajectories on a position and a velocity channel, and noise magnitude vs
-speed for the state-dependent model.
-
-  uv run python scripts/explore_noise.py --env HalfCheetah-v5 --outdir figures
-"""
+# usage: uv run python scripts/explore_noise.py --env HalfCheetah-v5 --outdir figures
 
 from __future__ import annotations
 

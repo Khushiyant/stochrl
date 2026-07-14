@@ -1,11 +1,4 @@
-"""Run the noise-mode benchmark sweep: modes x seeds, in parallel on CPU.
-
-Each cell is a full SAC run in its own subprocess with capped threads. Writes
-a manifest the plotter consumes; the SAC script logs clean-eval returns to
-results/<run_name>.csv.
-
-  uv run python scripts/run_benchmark.py --total-timesteps 60000 --jobs 4
-"""
+# usage: uv run python scripts/run_benchmark.py --total-timesteps 60000 --jobs 4
 
 from __future__ import annotations
 

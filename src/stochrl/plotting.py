@@ -1,9 +1,3 @@
-"""Shared plotting style: serif type, despined axes, grayscale series.
-
-Series are distinguished by shade + line style + marker (and hatch for bars)
-so the figures survive black-and-white printing.
-"""
-
 from __future__ import annotations
 
 import matplotlib as mpl
@@ -52,12 +46,11 @@ def set_style():
 
 
 def style(mode):
-    """Return (shade, linestyle, marker, hatch, label) for a mode, with a fallback."""
     return MODE_STYLE.get(mode, ("0.5", "-", "o", "", mode))
 
 
 def finish(fig, ax):
-    """Despine and tighten; call before saving."""
+    """Despine and tighten before saving."""
     if isinstance(ax, plt.Axes):
         sns.despine(ax=ax)
     fig.tight_layout()

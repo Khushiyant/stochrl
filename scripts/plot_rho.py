@@ -1,8 +1,4 @@
-"""Final return vs noise level (rho), paper-style. Reads several per-rho sweep dirs.
-
-  uv run python scripts/plot_rho.py --pairs 0.0:results_cleanrl 0.05:results_rho005 \
-      0.1:results_cleanrl 0.2:results_rho020
-"""
+# usage: uv run python scripts/plot_rho.py --pairs 0.05:results_rho005 0.1:results_modes 0.2:results_rho020
 
 from __future__ import annotations
 

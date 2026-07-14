@@ -1,12 +1,3 @@
-"""Gymnasium wrappers that inject observation or action noise via a NoiseModel.
-
-Noise lives in a wrapper around an unmodified environment, so the same spec
-applies to any continuous-control task without touching the physics.
-Observation noise (which makes the task a POMDP) and action noise (which the
-dynamics absorb into a transformed MDP) are separate wrappers so they can be
-studied independently.
-"""
-
 from __future__ import annotations
 
 import gymnasium as gym
