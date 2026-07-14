@@ -85,7 +85,7 @@ def main(outdir: str = "results", figdir: str = "figures", prefix: str = "benchm
 
     # console table
     base = next((s[1] for s in summary if s[0] == "none"), None)
-    print(f"\nResults — {manifest['args']['env_id']}, rho={manifest['args']['rho']}, "
+    print(f"\nResults: {manifest['args']['env_id']}, rho={manifest['args']['rho']}, "
           f"{manifest['args']['total_timesteps']} steps ({est} [95% CI] over seeds):\n")
     print(f"  {'mode':24s} {est:>8s} {'95% CI':>18s} {'seeds':>6s} {'vs clean':>9s}")
     for mode, pt, lo, hi, n in summary:

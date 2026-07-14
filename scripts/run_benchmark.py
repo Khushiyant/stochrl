@@ -30,7 +30,8 @@ class Args:
 
 
 def run_one(args: Args, mode: str, seed: int) -> dict:
-    run_name = f"{args.env_id}__{mode}_{args.noise_target}_rho{args.rho}__{seed}"
+    env_tag = args.env_id.replace("/", "-")  # dm_control ids contain a slash
+    run_name = f"{env_tag}__{mode}_{args.noise_target}_rho{args.rho}__{seed}"
     csv_path = os.path.join(args.outdir, f"{run_name}.csv")
     cmd = [
         sys.executable, "scripts/sac_continuous_action.py",

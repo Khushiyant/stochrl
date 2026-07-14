@@ -20,7 +20,7 @@ import tyro
 from stable_baselines3.common.buffers import ReplayBuffer
 from torch.utils.tensorboard import SummaryWriter
 
-from stochrl import ActionNoise, ObservationNoise, collect_signal_stats, presets
+from stochrl import ActionNoise, ObservationNoise, collect_signal_stats, make_flat, presets
 
 
 @dataclass
@@ -64,7 +64,7 @@ def build_noise(env, args, seed):
         return env
     obs_ss, act_ss = np.random.SeedSequence(seed).spawn(2)
     if args.noise_target in ("obs", "both"):
-        stats = collect_signal_stats(gym.make(args.env_id), steps=args.calib_steps, seed=args.calib_seed)
+        stats = collect_signal_stats(make_flat(args.env_id), steps=args.calib_steps, seed=args.calib_seed)
         # pos/vel split from the MuJoCo model
         try:
             n_pos = env.observation_space.shape[0] - int(env.unwrapped.model.nv)
@@ -95,7 +95,7 @@ def build_noise(env, args, seed):
 
 
 def make_env(args, seed):
-    env = gym.make(args.env_id)
+    env = make_flat(args.env_id)
     env = gym.wrappers.RecordEpisodeStatistics(env)
     env = build_noise(env, args, seed)
     return env
@@ -103,7 +103,7 @@ def make_env(args, seed):
 
 def evaluate(actor, env_id, episodes, device, seed):
     """Mean-action eval on a clean env."""
-    eval_env = gym.make(env_id)
+    eval_env = make_flat(env_id)
     returns = []
     for e in range(episodes):
         obs, _ = eval_env.reset(seed=seed + 10_000 + e)
@@ -186,7 +186,8 @@ class Actor(nn.Module):
 
 
 def main(args: Args):
-    run_name = f"{args.env_id}__{args.noise_mode}_{args.noise_target}_rho{args.rho}__{args.seed}"
+    env_tag = args.env_id.replace("/", "-")  # dm_control ids contain a slash
+    run_name = f"{env_tag}__{args.noise_mode}_{args.noise_target}_rho{args.rho}__{args.seed}"
     writer = SummaryWriter(f"runs/{run_name}")
     if args.torch_threads > 0:
         torch.set_num_threads(args.torch_threads)

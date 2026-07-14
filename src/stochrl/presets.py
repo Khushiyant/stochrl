@@ -1,10 +1,10 @@
 from __future__ import annotations
 
-import gymnasium as gym
 import numpy as np
 
 from . import noise as N
 from .calibrate import SignalStats
+from .envs import make_flat
 
 
 def _all(dim):
@@ -107,7 +107,7 @@ def channel_isolation(stats: SignalStats, rho: float, env_id: str, mode: str,
 
     gain_fn = _deflection_gain(idx, stats.scale[idx], stats.mean[idx])
     if kind == "flat":
-        c = _matched_constant_gain(gym.make(env_id), gain_fn, len(idx), calib_steps, calib_seed)
+        c = _matched_constant_gain(make_flat(env_id), gain_fn, len(idx), calib_steps, calib_seed)
         gain_fn = lambda ref: c  # constant, matched to the state-dependent gain's RMS
 
     specs = [N.ChannelNoise(idx, N.Gaussian(relative=rho), gain_fn=gain_fn)]
@@ -131,7 +131,7 @@ def combined_isolation(stats: SignalStats, rho: float, env_id: str, vel_kind: st
     for _, idx, kind in groups:
         gain_fn = _deflection_gain(idx, stats.scale[idx], stats.mean[idx])
         if kind == "flat":
-            gain_fn = _const_gain(_matched_constant_gain(gym.make(env_id), gain_fn, len(idx),
+            gain_fn = _const_gain(_matched_constant_gain(make_flat(env_id), gain_fn, len(idx),
                                                          calib_steps, calib_seed))
         elif kind != "statedep":
             raise ValueError(f"kind must be flat|statedep, got {kind}")
