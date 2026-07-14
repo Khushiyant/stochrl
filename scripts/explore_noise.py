@@ -1,10 +1,8 @@
-"""Explore and visualise noise patterns on a continuous-control env (conference B&W).
+"""Visualise the noise patterns on a continuous-control env.
 
-Answers, with pictures:
-  1. Why is a single uniform sigma wrong?  -> channels differ in scale by ~40x.
-  2. What does calibrated per-channel noise look like vs the baseline?
-  3. What does *state-dependent* noise look like? -> velocity-channel noise that
-     grows with speed.
+Produces three figures: the per-channel signal scale, clean vs noisy
+trajectories on a position and a velocity channel, and noise magnitude vs
+speed for the state-dependent model.
 
   uv run python scripts/explore_noise.py --env HalfCheetah-v5 --outdir figures
 """
@@ -60,7 +58,7 @@ def main(args: Args):
     print(f"env={args.env}  obs_dim={dim}  calibrating ({args.calib_steps} steps)...")
     stats = collect_signal_stats(env, steps=args.calib_steps, seed=args.seed)
 
-    # ---- Figure 1: per-channel signal scale (the case for calibration) ------ #
+    # figure 1: per-channel signal scale
     fig, ax = plt.subplots(figsize=(6.4, 3.0))
     ax.bar(range(dim), stats.scale, color="0.6", edgecolor="black", lw=0.6)
     ax.axhline(stats.scale.mean(), color="black", ls="--", lw=1.2,
@@ -81,7 +79,7 @@ def main(args: Args):
     pos_ch = int(np.argmax(stats.scale[:n_pos]))
     vel_ch = n_pos + int(np.argmax(stats.scale[n_pos:]))
 
-    # ---- Figure 2: clean vs noisy, position vs velocity channel ------------- #
+    # figure 2: clean vs noisy, position vs velocity channel
     fig, axes = plt.subplots(2, 1, figsize=(6.6, 4.4), sharex=True)
     for ax, ch, name in [(axes[0], pos_ch, "position"), (axes[1], vel_ch, "velocity")]:
         t = np.arange(len(clean))
@@ -96,7 +94,7 @@ def main(args: Args):
     finish(fig, axes[1])
     fig.savefig(f"{args.outdir}/02_trajectories.png")
 
-    # ---- Figure 3: state-dependent degree (the headline claim) -------------- #
+    # figure 3: state-dependent noise magnitude
     speed = np.abs(clean[:, vel_ch])
     fig, ax = plt.subplots(figsize=(5.6, 4.2))
     ax.scatter(speed, np.abs(base[:, vel_ch] - clean[:, vel_ch]), s=18,
@@ -106,7 +104,7 @@ def main(args: Args):
                color="black", marker="x", linewidths=0.9,
                label="realistic: noise grows with $|$velocity$|$")
     ax.set(xlabel=f"$|$velocity$|$ of channel {vel_ch}", ylabel="applied noise magnitude")
-    ax.set_title("Which state should be noisier? State-dependent degree")
+    ax.set_title("State-dependent noise magnitude on the velocity channel")
     ax.legend(loc="upper left")
     finish(fig, ax)
     fig.savefig(f"{args.outdir}/03_state_dependent.png")

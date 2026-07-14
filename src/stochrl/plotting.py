@@ -1,8 +1,6 @@
-"""Shared conference-style plotting: crisp, grayscale, seaborn-based.
+"""Shared plotting style: serif type, despined axes, grayscale series.
 
-Every figure in the repo goes through `set_style()` so the look is consistent and
-publication-ready: serif type, despined axes, ticks inward, no chartjunk. Series
-are distinguished by grayscale shade + line style + marker (and hatch for bars),
+Series are distinguished by shade + line style + marker (and hatch for bars)
 so the figures survive black-and-white printing.
 """
 
@@ -12,7 +10,7 @@ import matplotlib as mpl
 import matplotlib.pyplot as plt
 import seaborn as sns
 
-# Per-mode style: (gray shade, linestyle, marker, hatch, label). Black-and-white safe.
+# per-mode style: (gray shade, linestyle, marker, hatch, label)
 MODE_STYLE = {
     "none":               ("0.0",  "-",  "o", "",   "no noise"),
     "uniform":            ("0.45", "--", "s", "//",  "uniform (absolute, naive)"),
@@ -26,6 +24,10 @@ MODE_STYLE = {
     "both-sf":            ("0.30", ":",  "^", "..",  "velocity state-dep, position flat"),
     "both-fs":            ("0.15", "-.", "v", "\\\\", "velocity flat, position state-dep"),
     "both-ss":            ("0.0",  "-",  "D", "xx",  "both state-dependent"),
+    "fixed-p25":          ("0.60", ":",  "v", "..",  "fixed = 25th pct of scales"),
+    "fixed-median":       ("0.45", "--", "^", "//",  "fixed = median of scales"),
+    "fixed-mean":         ("0.30", "-.", "s", "\\\\", "fixed = mean of scales"),
+    "fixed-p75":          ("0.15", ":",  "o", "xx",  "fixed = 75th pct of scales"),
 }
 
 
@@ -55,7 +57,7 @@ def style(mode):
 
 
 def finish(fig, ax):
-    """Despine + tighten — call before saving."""
+    """Despine and tighten; call before saving."""
     if isinstance(ax, plt.Axes):
         sns.despine(ax=ax)
     fig.tight_layout()

@@ -1,19 +1,17 @@
-"""Soft Actor-Critic — CleanRL implementation, with pluggable calibrated noise.
+"""Soft Actor-Critic (CleanRL) with pluggable calibrated noise.
 
-The SAC algorithm here is CleanRL's `sac_continuous_action.py` (Huang et al., 2022,
-JMLR), used as the trusted reference. The `Actor`, `SoftQNetwork`, the get_action
-log-prob, the full critic/actor/temperature update block, and all hyperparameters
-are COPIED VERBATIM from CleanRL (https://github.com/vwxyzjn/cleanrl). The replay
-buffer is the same stable-baselines3 `ReplayBuffer` CleanRL imports.
+The algorithm is CleanRL's `sac_continuous_action.py` (Huang et al., 2022,
+JMLR): the networks, the get_action log-prob, the critic/actor/temperature
+update block and all hyperparameters are copied verbatim from
+https://github.com/vwxyzjn/cleanrl, with the same stable-baselines3
+`ReplayBuffer`. Two deviations:
 
-Two deliberate deviations, both forced and documented:
-  1. A single-env loop instead of `gym.vector.SyncVectorEnv([...])` with num_envs=1.
-     CleanRL's vector-autoreset code (`infos["final_info"]/["final_observation"]`)
-     targets gymnasium 0.29; we run gymnasium 1.3, whose vector autoreset API differs.
-     A single env is exactly equivalent to num_envs=1 and side-steps that mismatch.
-  2. Noise wrappers + a clean-eval + CSV logging are added around the algorithm.
+  1. A single-env loop instead of `SyncVectorEnv` with num_envs=1. CleanRL's
+     vector-autoreset code targets gymnasium 0.29 and we run 1.3, whose
+     autoreset API differs; a single env is equivalent to num_envs=1.
+  2. Noise wrappers, clean-env evaluation and CSV logging around the algorithm.
 
-Everything between the "BEGIN/END CleanRL verbatim" markers is unchanged CleanRL.
+Code between the "CleanRL verbatim" markers is unchanged CleanRL.
 
   uv run python scripts/sac_continuous_action.py --env-id HalfCheetah-v5 --noise-mode realistic --rho 0.1
 """
@@ -46,20 +44,20 @@ class Args:
     device: str = "cpu"
     torch_deterministic: bool = True
 
-    # --- noise (research knobs) --- #
-    noise_mode: str = "none"  # none | uniform | uniform-calibrated | realistic | vel-flat | vel-statedep
+    # noise
+    noise_mode: str = "none"  # none | uniform | uniform-calibrated | fixed-<stat> | realistic | {vel,pos}-{flat,statedep} | both-{ff,sf,fs,ss}
     noise_target: str = "obs"  # obs | action | both
     rho: float = 0.1
     calib_steps: int = 10_000
     calib_seed: int = 0
 
-    # --- evaluation & logging --- #
+    # evaluation & logging
     eval_interval: int = 0
     eval_episodes: int = 5
     csv_path: str = ""
     torch_threads: int = 0
 
-    # --- SAC hyperparameters (CleanRL defaults, verbatim) --- #
+    # SAC hyperparameters (CleanRL defaults)
     buffer_size: int = int(1e6)
     gamma: float = 0.99
     tau: float = 0.005
@@ -73,7 +71,6 @@ class Args:
     autotune: bool = True
 
 
-# ----------------------- noise / eval (project additions) ------------------- #
 def build_noise(env, args, seed):
     """Wrap `env` with the requested noise model(s). Calibration uses a fixed seed
     (constant treatment across runs); obs/action noise get independent RNG streams."""
@@ -82,17 +79,26 @@ def build_noise(env, args, seed):
     obs_ss, act_ss = np.random.SeedSequence(seed).spawn(2)
     if args.noise_target in ("obs", "both"):
         stats = collect_signal_stats(gym.make(args.env_id), steps=args.calib_steps, seed=args.calib_seed)
+        # read the position/velocity split off the MuJoCo model rather than
+        # assuming half and half
+        try:
+            n_pos = env.observation_space.shape[0] - int(env.unwrapped.model.nv)
+        except Exception:
+            n_pos = None  # presets fall back to dim // 2
         if args.noise_mode == "realistic":
-            model = presets.realistic_sensors(stats, rho=args.rho)
+            model = presets.realistic_sensors(stats, rho=args.rho, n_pos=n_pos)
         elif args.noise_mode in ("vel-flat", "vel-statedep", "pos-flat", "pos-statedep"):
             model = presets.channel_isolation(
-                stats, args.rho, args.env_id, args.noise_mode, args.calib_steps, args.calib_seed)
+                stats, args.rho, args.env_id, args.noise_mode, args.calib_steps,
+                args.calib_seed, n_pos=n_pos)
         elif args.noise_mode.startswith("both-"):
             kinds = {"f": "flat", "s": "statedep"}
             code = args.noise_mode.split("-")[1]  # e.g. 'sf' -> vel=statedep, pos=flat
             model = presets.combined_isolation(
                 stats, args.rho, args.env_id, kinds[code[0]], kinds[code[1]],
-                args.calib_steps, args.calib_seed)
+                args.calib_steps, args.calib_seed, n_pos=n_pos)
+        elif args.noise_mode.startswith("fixed-"):
+            model = presets.fixed_gaussian(stats, rho=args.rho, stat=args.noise_mode.split("-")[1])
         else:
             model = presets.uniform_gaussian(
                 stats, rho=args.rho, calibrated=(args.noise_mode == "uniform-calibrated"))
@@ -111,7 +117,7 @@ def make_env(args, seed):
 
 
 def evaluate(actor, env_id, episodes, device, seed):
-    """Deterministic (mean-action) eval on a CLEAN env — comparable across modes."""
+    """Mean-action evaluation on a clean (noise-free) env, comparable across modes."""
     eval_env = gym.make(env_id)
     returns = []
     for e in range(episodes):
@@ -128,7 +134,7 @@ def evaluate(actor, env_id, episodes, device, seed):
     return float(np.mean(returns))
 
 
-# ===================== BEGIN CleanRL verbatim (networks) ==================== #
+# begin CleanRL verbatim (networks)
 class SoftQNetwork(nn.Module):
     def __init__(self, env):
         super().__init__()
@@ -191,7 +197,7 @@ class Actor(nn.Module):
         log_prob = log_prob.sum(1, keepdim=True)
         mean = torch.tanh(mean) * self.action_scale + self.action_bias
         return action, log_prob, mean
-# ====================== END CleanRL verbatim (networks) ===================== #
+# end CleanRL verbatim (networks)
 
 
 def main(args: Args):
@@ -271,7 +277,7 @@ def main(args: Args):
         # ALGO LOGIC: training.
         if global_step > args.learning_starts:
             data = rb.sample(args.batch_size)
-            # ===================== BEGIN CleanRL verbatim (update) ============ #
+            # begin CleanRL verbatim (update)
             with torch.no_grad():
                 next_state_actions, next_state_log_pi, _ = actor.get_action(data.next_observations)
                 qf1_next_target = qf1_target(data.next_observations, next_state_actions)
@@ -316,7 +322,7 @@ def main(args: Args):
                     target_param.data.copy_(args.tau * param.data + (1 - args.tau) * target_param.data)
                 for param, target_param in zip(qf2.parameters(), qf2_target.parameters()):
                     target_param.data.copy_(args.tau * param.data + (1 - args.tau) * target_param.data)
-            # ====================== END CleanRL verbatim (update) ============= #
+            # end CleanRL verbatim (update)
 
             if global_step % 1000 == 0:
                 writer.add_scalar("losses/qf_loss", qf_loss.item() / 2.0, global_step)

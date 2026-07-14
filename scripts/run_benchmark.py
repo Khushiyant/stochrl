@@ -1,8 +1,8 @@
 """Run the noise-mode benchmark sweep: modes x seeds, in parallel on CPU.
 
-Each cell is a full SAC run (separate subprocess, capped threads so we can run
-several at once). Writes a manifest the plotter consumes. Clean-eval returns are
-logged by the SAC script itself to results/<run_name>.csv.
+Each cell is a full SAC run in its own subprocess with capped threads. Writes
+a manifest the plotter consumes; the SAC script logs clean-eval returns to
+results/<run_name>.csv.
 
   uv run python scripts/run_benchmark.py --total-timesteps 60000 --jobs 4
 """
@@ -29,8 +29,8 @@ class Args:
     noise_target: str = "obs"
     total_timesteps: int = 60_000
     learning_starts: int = 5_000
-    eval_interval: int = 2_000
-    eval_episodes: int = 5
+    eval_interval: int = 2_500
+    eval_episodes: int = 3
     jobs: int = 4
     threads_per_job: int = 3
     outdir: str = "results"

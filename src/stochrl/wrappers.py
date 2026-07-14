@@ -1,13 +1,10 @@
-"""Gymnasium wrappers that inject observation / action noise via a NoiseModel.
+"""Gymnasium wrappers that inject observation or action noise via a NoiseModel.
 
-Design follows MDP Playground's idea: stochasticity is a *wrapper* layered on an
-unmodified environment, so the same noise spec applies to any continuous-control
-task and can be toggled / swept without touching the physics.
-
-Two distinct effects (Section 3.1 of the paper):
-  * Observation noise breaks the Markov property  -> POMDP.
-  * Action noise gets absorbed by the dynamics     -> a transformed MDP.
-We keep them as separate wrappers so a benchmark can study them independently.
+Noise lives in a wrapper around an unmodified environment, so the same spec
+applies to any continuous-control task without touching the physics.
+Observation noise (which makes the task a POMDP) and action noise (which the
+dynamics absorb into a transformed MDP) are separate wrappers so they can be
+studied independently.
 """
 
 from __future__ import annotations

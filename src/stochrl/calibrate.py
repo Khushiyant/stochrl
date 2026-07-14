@@ -1,15 +1,10 @@
-"""Estimate per-channel signal magnitude so noise levels are comparable.
+"""Estimate per-channel signal magnitude for noise calibration.
 
-The whole point: a noise level of "0.05" is meaningless on its own, because a
-joint-angle channel (range ~1 rad) and a velocity channel (range ~20 rad/s) live
-on totally different scales. Adding sigma=0.05 to both perturbs the first one
-massively and the second one not at all. That is exactly the "indiscriminate of
-the observation dimension" flaw the paper calls out.
-
-Fix: roll out a reference policy (random by default), measure each channel's own
-spread (std, robust MAD, and range), and express noise *relative* to that. Then
-one knob `rho` means "perturb every channel by rho of its natural variation",
-which is comparable across channels and across environments.
+Observation channels differ in scale by orders of magnitude (a joint angle
+spans ~1 rad, a joint velocity ~20 rad/s), so one absolute sigma perturbs
+them very unevenly. Rolling out a random policy and measuring each channel's
+spread lets noise be expressed relative to that spread: a single level rho
+then perturbs every channel by the same fraction of its natural variation.
 """
 
 from __future__ import annotations

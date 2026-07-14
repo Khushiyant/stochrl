@@ -21,8 +21,9 @@ import tyro
 from stochrl.plotting import finish, set_style, style
 from stochrl.stats import bootstrap_ci, estimator_name
 
-# Plot modes in this canonical order when present.
-ORDER = ["none", "uniform", "uniform-calibrated", "realistic",
+# plot modes in this order when present
+ORDER = ["none", "uniform", "fixed-p25", "fixed-median", "fixed-mean", "fixed-p75",
+         "uniform-calibrated", "realistic",
          "vel-flat", "vel-statedep", "pos-flat", "pos-statedep",
          "both-ff", "both-sf", "both-fs", "both-ss"]
 
@@ -58,7 +59,7 @@ def main(outdir: str = "results", figdir: str = "figures", prefix: str = "benchm
         by_mode = {m: by_mode[m] for m in modes if m in by_mode}
     modes = [m for m in ORDER if m in by_mode] + [m for m in by_mode if m not in ORDER]
 
-    # ---- Learning curves ---------------------------------------------------- #
+    # learning curves
     fig, ax = plt.subplots(figsize=(6.4, 4.2))
     finals = []  # (mode, per-seed final returns)
     for mode in modes:
@@ -75,7 +76,7 @@ def main(outdir: str = "results", figdir: str = "figures", prefix: str = "benchm
     finish(fig, ax)
     fig.savefig(f"{figdir}/{prefix}_curves.png")
 
-    # ---- Final performance: IQM + 95% bootstrap CI over seeds --------------- #
+    # final performance: IQM + 95% bootstrap CI over seeds
     summary = [(mode, *bootstrap_ci(f), len(f)) for mode, f in finals]
     est = estimator_name(min(s[4] for s in summary)) if summary else "IQM"
     fig, ax = plt.subplots(figsize=(6.0, 4.0))
@@ -90,7 +91,7 @@ def main(outdir: str = "results", figdir: str = "figures", prefix: str = "benchm
     finish(fig, ax)
     fig.savefig(f"{figdir}/{prefix}_final.png")
 
-    # ---- Console table ------------------------------------------------------ #
+    # console table
     base = next((s[1] for s in summary if s[0] == "none"), None)
     print(f"\nResults — {manifest['args']['env_id']}, rho={manifest['args']['rho']}, "
           f"{manifest['args']['total_timesteps']} steps ({est} [95% CI] over seeds):\n")
