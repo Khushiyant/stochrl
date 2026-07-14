@@ -1,6 +1,6 @@
 # StochRL
 
-A benchmark for reinforcement learning under realistic sensor noise, built on Soft Actor Critic and MuJoCo (Gymnasium `HalfCheetah-v5`, `Hopper-v5`, `Walker2d-v5`). Most noise studies add the same Gaussian jitter to every sensor; real sensors differ in scale, degrade in certain situations, and fail in non-Gaussian ways. StochRL sizes noise per sensor and lets it depend on the state. Training always happens under noise, and every score is the return on a clean copy of the environment, so the numbers measure damage to learning.
+A benchmark for reinforcement learning under realistic sensor noise, built on Soft Actor Critic and MuJoCo (Gymnasium `HalfCheetah-v5`, `Hopper-v5`, `Walker2d-v5`, and DeepMind Control Suite `cheetah-run`, `walker-walk` via shimmy). Most noise studies add the same Gaussian jitter to every sensor; real sensors differ in scale, degrade in certain situations, and fail in non-Gaussian ways. StochRL sizes noise per sensor and lets it depend on the state. Training always happens under noise, and every score is the return on a clean copy of the environment, so the numbers measure damage to learning.
 
 ## Results
 
@@ -14,13 +14,15 @@ Every cell is the final return as a percentage of that study's no noise score; h
 | Fixed pinning: p25 / median / mean / p75 / scaled | HalfCheetah | 85 / 65 / 2 / -1 / 53 | 8 |
 | | Hopper | 105 / 64 / 52 / 46 / 69 | 8 |
 | | Walker2d | 111 / 106 / 74 / 77 / 111 | 8 |
+| | dmc cheetah-run | 71 / 55 / 36 / 31 / 81 | 8 |
+| | dmc walker-walk | 118 / 99 / 75 / 21 / 120 | 8 |
 | Velocity timing: steady / at fast moments | HalfCheetah | 72 / 54 | 8 |
 | Position timing: steady / at extremes | HalfCheetah | 92 / 89 | 8 |
 | Both groups: steady / vel timed / pos timed / both timed | HalfCheetah | 69 / 54 / 61 / 54 | 8 |
 | Noise level 0.05 / 0.1 / 0.2, scaled | HalfCheetah | 80 / 45 / 18 | 3 |
 | Noise level 0.05 / 0.1 / 0.2, realistic | HalfCheetah | 79 / 49 / 29 | 3 |
 
-The fixed pinning rows are the main point: depending on where the one number sits on the sensor-scale spread, the same benchmark calls the noise harmless (85% of clean) or fatal (2%), on all three robots, while the scaled version needs no such choice. The absolute baseline also flips sides between robots, mildest on HalfCheetah and harshest on Hopper, because the same sigma is relatively larger on Hopper's smaller sensors. Velocity sensors are the weak point: with total variance matched, moving their noise to the fast moments costs 72 against 54 percent of clean, and the identical manipulation on position sensors does nothing. Walker2d learns too little at this budget to separate conditions.
+The fixed pinning rows are the main point: on all five environments, across both suites, damage grows as the pin climbs the sensor-scale spread, so the same benchmark calls the noise anything from harmless to fatal depending on one arbitrary choice. The scaled version needs no such choice, and where it lands relative to the pins differs per robot (below the median pin on HalfCheetah, milder than every pin on the DeepMind Control tasks). The absolute baseline also flips sides between robots, mildest on HalfCheetah and harshest on Hopper, because the same sigma is relatively larger on Hopper's smaller sensors. Velocity sensors are the weak point: with total variance matched, moving their noise to the fast moments costs 72 against 54 percent of clean, and the identical manipulation on position sensors does nothing. Walker2d learns too little at this budget to separate conditions.
 
 Learning curves by noise style:
 
@@ -54,7 +56,7 @@ The rule for one sensor at one moment:
 noise size = rho * (that sensor's normal spread) * (a state factor)
 ```
 
-The spread is measured once from a 10,000 step random rollout with a fixed seed shared by every run; `rho` is 0.1 by default. Per-sensor sizing matters because the scales span 37x (HalfCheetah), 72x (Hopper) and 112x (Walker2d) between the smallest and largest channels.
+The spread is measured once from a 10,000 step random rollout with a fixed seed shared by every run; `rho` is 0.1 by default. Per-sensor sizing matters because the scales span 37x to 150x between the smallest and largest channels, depending on the environment.
 
 ![Per sensor scale](assets/01_signal_scale.png)
 
@@ -105,8 +107,13 @@ uv run python scripts/run_benchmark.py --env-id Hopper-v5 \
 uv run python scripts/run_benchmark.py --env-id Walker2d-v5 \
     --modes none fixed-p25 fixed-median fixed-mean fixed-p75 uniform-calibrated \
     --seeds 1 2 3 4 5 6 7 8 --total-timesteps 50000 --jobs 12 --threads-per-job 1 --outdir results_fixed_walker2d
-uv run python scripts/plot_fixed.py --figdir assets --pairs HalfCheetah-v5:results_fixed \
-    Hopper-v5:results_fixed_hopper Walker2d-v5:results_fixed_walker2d
+uv run python scripts/run_benchmark.py --env-id dm_control/cheetah-run-v0 \
+    --modes none fixed-p25 fixed-median fixed-mean fixed-p75 uniform-calibrated \
+    --seeds 1 2 3 4 5 6 7 8 --total-timesteps 50000 --jobs 12 --threads-per-job 1 --outdir results_fixed_dmc_cheetah
+uv run python scripts/run_benchmark.py --env-id dm_control/walker-walk-v0 \
+    --modes none fixed-p25 fixed-median fixed-mean fixed-p75 uniform-calibrated \
+    --seeds 1 2 3 4 5 6 7 8 --total-timesteps 50000 --jobs 12 --threads-per-job 1 --outdir results_fixed_dmc_walker
+uv run python scripts/plot_fixed.py --figdir assets
 
 # state dependence study, velocity and position and both
 uv run python scripts/run_benchmark.py \
