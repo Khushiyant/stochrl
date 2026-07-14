@@ -24,33 +24,21 @@ Most noise studies add the same Gaussian jitter to every sensor. Real sensors di
 
 ### Every number
 
-Return as a percentage of the no noise score for that study; higher is better.
+Every cell is the final return as a percentage of that study's no noise score; higher is better.
 
-| Experiment | Condition | Return vs no noise | Seeds |
+| Experiment | Environment | % of no noise score | Seeds |
 |---|---|---|---|
-| Noise style | no noise | 100% | 3 |
-| | same absolute amount on every sensor | 63% | 3 |
-| | scaled to each sensor, 10% of its spread | 45% | 3 |
-| | realistic mix (drift, dropouts, rounding) | 49% | 3 |
-| Fixed amount, by pinning point | 25th percentile of sensor scales | 85% | 8 |
-| | median of sensor scales | 65% | 8 |
-| | mean of sensor scales | 2% | 8 |
-| | 75th percentile of sensor scales | -1% | 8 |
-| | scaled to each sensor (8-seed rerun) | 53% | 8 |
-| Fixed pinning, Hopper-v5 | p25 / median / mean / p75 / scaled | 105%, 64%, 52%, 46%, 69% | 8 |
-| Fixed pinning, Walker2d-v5 | p25 / median / mean / p75 / scaled | 111%, 106%, 74%, 77%, 111% | 8 |
-| Velocity timing | steady over time | 72% | 8 |
-| | concentrated at fast moments | 54% | 8 |
-| Position timing | steady over time | 92% | 8 |
-| | concentrated at extreme angles | 89% | 8 |
-| Both sensors noisy | both steady | 69% | 8 |
-| | velocity timing, position steady | 54% | 8 |
-| | velocity steady, position timing | 61% | 8 |
-| | both timing | 54% | 8 |
-| Noise level, scaled | 5%, 10%, 20% of each sensor | 80%, 45%, 18% | 3 |
-| Noise level, realistic | 5%, 10%, 20% of each sensor | 79%, 49%, 29% | 3 |
-| Hopper-v5, noise style | absolute / scaled / realistic | 42%, 78%, 27% | 5 |
-| Walker2d-v5, noise style | absolute / scaled / realistic | 93%, 104%, 108% | 5 |
+| Noise style: absolute / scaled / realistic | HalfCheetah | 63 / 45 / 49 | 3 |
+| | Hopper | 42 / 78 / 27 | 5 |
+| | Walker2d | 93 / 104 / 108 | 5 |
+| Fixed pinning: p25 / median / mean / p75 / scaled | HalfCheetah | 85 / 65 / 2 / -1 / 53 | 8 |
+| | Hopper | 105 / 64 / 52 / 46 / 69 | 8 |
+| | Walker2d | 111 / 106 / 74 / 77 / 111 | 8 |
+| Velocity timing: steady / at fast moments | HalfCheetah | 72 / 54 | 8 |
+| Position timing: steady / at extremes | HalfCheetah | 92 / 89 | 8 |
+| Both groups: steady / vel timed / pos timed / both timed | HalfCheetah | 69 / 54 / 61 / 54 | 8 |
+| Noise level 0.05 / 0.1 / 0.2, scaled | HalfCheetah | 80 / 45 / 18 | 3 |
+| Noise level 0.05 / 0.1 / 0.2, realistic | HalfCheetah | 79 / 49 / 29 | 3 |
 
 ## How the noise is added
 
@@ -70,26 +58,23 @@ Sizing per sensor matters because the scales are heavily skewed: spans of 37x (H
 
 | Setting | Value |
 |---|---|
-| Algorithm | Soft Actor Critic, CleanRL single file, run unchanged (verbatim reproduction checked to the digit) |
-| Replay buffer | stable-baselines3 buffer, size 1,000,000 |
-| Network | two hidden layers of 256 units, ReLU, twin critics, tanh Gaussian policy |
-| Discount gamma / smoothing tau | 0.99 / 0.005 |
-| Batch size / learning starts | 256 / 5,000 steps |
+| Algorithm | SAC, CleanRL single file, unchanged (reproduction checked to the digit) |
+| Replay buffer | stable-baselines3, size 1e6 |
+| Network | 2 x 256 ReLU, twin critics, tanh Gaussian policy, log std in [-5, 2] |
+| gamma / tau / batch | 0.99 / 0.005 / 256 |
 | Learning rates | policy 3e-4, critics 1e-3 |
-| Update schedule | policy every 2 steps, target networks every step |
-| Entropy temperature | tuned automatically, target entropy equal to minus the action dimension |
-| Log std range | negative 5 to positive 2 |
-| Training length | 50,000 steps per run, a short prototype budget (real studies use 1,000,000) |
-| Noise level rho | 0.1 by default, also 0.05 and 0.2 for the level sweep |
+| Update schedule | critics every step, policy every 2, targets every step |
+| Entropy temperature | auto-tuned, target entropy = -(action dim) |
+| Training length | 50,000 steps per run (short prototype budget); learning starts at 5,000 |
+| Noise level rho | 0.1 default; 0.05 and 0.2 in the level sweep |
 | Calibration | per-sensor spread from a 10,000 step random rollout, fixed seed 0, shared by all runs |
-| State factor, state dependent | 0.5 plus the distance from typical, in units of the sensor's own spread |
-| State factor, flat | a constant equal to the root mean square of the above, so both inject equal total noise |
-| Position channels used | joint angle sensors only; the root pose channels are left clean because they drift between runs |
-| Random streams | observation noise, action noise, calibration, env and policy all seeded independently; identical seeds give byte-identical runs |
-| Evaluation | 3 episodes on a clean environment every 2,500 steps, greedy mean action |
-| Seeds | 3 for the noise style and level studies, 8 for the state dependence and fixed amount studies (all environments), 5 for the Hopper and Walker2d noise style check |
-| Aggregation | interquartile mean across seeds with a 95 percent bootstrap interval, plain mean below 4 seeds |
-| Compute | CPU, 1 thread per run, 12 runs in parallel |
+| State factor | statedep: 0.5 + distance from typical, in units of the sensor's spread; flat: constant = RMS of that, so total noise matches |
+| Position channels | joint angles only; root pose channels left clean (non-stationary) |
+| Random streams | obs noise, action noise, calibration, env and policy seeded independently; same seed, byte-identical run |
+| Evaluation | 3 clean-env episodes every 2,500 steps, greedy mean action |
+| Seeds | 3 (noise style, level), 8 (state dependence, fixed pinning), 5 (Hopper/Walker2d style check) |
+| Aggregation | IQM with 95% bootstrap CI; plain mean below 4 seeds |
+| Compute | CPU, 1 thread per run, 12 in parallel |
 
 Limits: the budget is a short 50,000 steps everywhere; the 3-seed studies are plain means; Walker2d barely learns at this budget, so its numbers say little. The stochastic transition variant (jolting the world rather than the readings) and a comparison across learning algorithms are still to do.
 
