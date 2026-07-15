@@ -191,8 +191,9 @@ class NoiseModel:
     keeps per-step (clean, noisy) pairs in `self.history`.
     """
 
-    def __init__(self, dim, scale, specs, record=False):
+    def __init__(self, dim, scale, specs, record=False, out_dtype=np.float32):
         self.dim = dim
+        self.out_dtype = out_dtype  # float64 for the transition-noise state path
         self.scale = np.asarray(scale, dtype=np.float64)
         self.specs = specs
         for s in specs:
@@ -211,4 +212,4 @@ class NoiseModel:
             out[s.indices] = s.process(x[s.indices], rng, s.gain(x))
         if self.record:
             self.history.append((x.copy(), out.copy()))
-        return out.astype(np.float32)
+        return out.astype(self.out_dtype)

@@ -22,14 +22,13 @@ class SignalStats:
         return np.maximum(s, floor)
 
 
-def collect_signal_stats(env: gym.Env, steps: int = 20_000, seed: int = 0) -> SignalStats:
-    """Per-channel observation stats from a random-policy rollout."""
+def _rollout_stats(env, steps, seed, read):
     obs, _ = env.reset(seed=seed)
     env.action_space.seed(seed)
-    buf = [np.asarray(obs, dtype=np.float64)]
+    buf = [read(obs)]
     for _ in range(steps):
         obs, _, term, trunc, _ = env.step(env.action_space.sample())
-        buf.append(np.asarray(obs, dtype=np.float64))
+        buf.append(read(obs))
         if term or trunc:
             obs, _ = env.reset()
     data = np.stack(buf)
@@ -40,3 +39,8 @@ def collect_signal_stats(env: gym.Env, steps: int = 20_000, seed: int = 0) -> Si
         span=np.percentile(data, 99, 0) - np.percentile(data, 1, 0),
         n=len(data),
     )
+
+
+def collect_signal_stats(env: gym.Env, steps: int = 20_000, seed: int = 0) -> SignalStats:
+    """Per-channel observation stats from a random-policy rollout."""
+    return _rollout_stats(env, steps, seed, lambda obs: np.asarray(obs, dtype=np.float64))

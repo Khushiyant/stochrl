@@ -17,7 +17,7 @@ from .noise import (
     Saturation,
 )
 from .presets import actuator_noise, realistic_sensors, uniform_gaussian
-from .wrappers import ActionNoise, ObservationNoise
+from .wrappers import ActionNoise, ObservationNoise, TransitionNoise
 
 __all__ = [
     "SignalStats",
@@ -40,4 +40,5 @@ __all__ = [
     "actuator_noise",
     "ObservationNoise",
     "ActionNoise",
+    "TransitionNoise",
 ]

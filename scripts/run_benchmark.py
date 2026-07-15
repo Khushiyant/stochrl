@@ -62,8 +62,14 @@ def run_one(args: Args, mode: str, seed: int) -> dict:
 
 def main(args: Args):
     os.makedirs(args.outdir, exist_ok=True)
-    jobs = [(m, s) for m in args.modes for s in args.seeds]
-    print(f"Running {len(jobs)} SAC runs ({len(args.modes)} modes x {len(args.seeds)} seeds), "
+    modes = args.modes
+    if args.noise_target == "transition":
+        keep = [m for m in modes if m in ("none", "uniform", "uniform-calibrated")]
+        if keep != modes:
+            print(f"transition noise: dropping unsupported modes {sorted(set(modes) - set(keep))}")
+            modes = keep
+    jobs = [(m, s) for m in modes for s in args.seeds]
+    print(f"Running {len(jobs)} SAC runs ({len(modes)} modes x {len(args.seeds)} seeds), "
           f"{args.total_timesteps} steps each, {args.jobs} in parallel.\n")
     t0 = time.time()
     with ThreadPoolExecutor(max_workers=args.jobs) as pool:

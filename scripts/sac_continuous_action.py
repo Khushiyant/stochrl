@@ -20,7 +20,8 @@ import tyro
 from stable_baselines3.common.buffers import ReplayBuffer
 from torch.utils.tensorboard import SummaryWriter
 
-from stochrl import ActionNoise, ObservationNoise, collect_signal_stats, make_flat, presets
+from stochrl import (ActionNoise, ObservationNoise, TransitionNoise,
+                     collect_signal_stats, make_flat, presets)
 
 
 @dataclass
@@ -33,7 +34,7 @@ class Args:
 
     # noise
     noise_mode: str = "none"  # none | uniform | uniform-calibrated | fixed-<stat> | realistic | {vel,pos}-{flat,statedep} | both-{ff,sf,fs,ss}
-    noise_target: str = "obs"  # obs | action | both
+    noise_target: str = "obs"  # obs | action | both | transition
     rho: float = 0.1
     calib_steps: int = 10_000
     calib_seed: int = 0
@@ -58,18 +59,36 @@ class Args:
     autotune: bool = True
 
 
+def _n_pos(env):
+    # first observation channel that is a velocity, or None if not a MuJoCo env
+    try:
+        return env.observation_space.shape[0] - int(env.unwrapped.model.nv)
+    except Exception:
+        return None
+
+
 def build_noise(env, args, seed):
-    # calibration seed is fixed across runs; obs/action noise get independent RNG streams
+    # calibration seed is fixed across runs; each noise target gets its own RNG stream
+    if args.noise_target not in ("obs", "action", "both", "transition"):
+        raise ValueError(f"unknown noise_target: {args.noise_target}")
     if args.noise_mode == "none":
         return env
-    obs_ss, act_ss = np.random.SeedSequence(seed).spawn(2)
+    obs_ss, act_ss, trans_ss = np.random.SeedSequence(seed).spawn(3)
+    if args.noise_target == "transition":
+        if args.noise_mode not in ("uniform", "uniform-calibrated"):
+            raise ValueError(f"transition noise supports uniform modes only, got {args.noise_mode}")
+        n_pos = _n_pos(env)
+        if n_pos is None:
+            raise ValueError("transition noise needs a Gymnasium MuJoCo env")
+        # calibrate on the observation velocity channels so per-channel sigma
+        # matches the observation-noise treatment at the same rho
+        stats = collect_signal_stats(make_flat(args.env_id), steps=args.calib_steps, seed=args.calib_seed)
+        model = presets.transition_gaussian(stats.scale[n_pos:], rho=args.rho,
+                                            calibrated=(args.noise_mode == "uniform-calibrated"))
+        return TransitionNoise(env, model, seed=int(trans_ss.generate_state(1)[0]))
     if args.noise_target in ("obs", "both"):
         stats = collect_signal_stats(make_flat(args.env_id), steps=args.calib_steps, seed=args.calib_seed)
-        # pos/vel split from the MuJoCo model
-        try:
-            n_pos = env.observation_space.shape[0] - int(env.unwrapped.model.nv)
-        except Exception:
-            n_pos = None  # presets fall back to dim // 2
+        n_pos = _n_pos(env)  # presets fall back to dim // 2 when None
         if args.noise_mode == "realistic":
             model = presets.realistic_sensors(stats, rho=args.rho, n_pos=n_pos)
         elif args.noise_mode in ("vel-flat", "vel-statedep", "pos-flat", "pos-statedep"):
