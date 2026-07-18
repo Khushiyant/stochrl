@@ -9,6 +9,7 @@ import os
 import random
 import time
 from dataclasses import dataclass
+from pathlib import Path
 
 import gymnasium as gym
 import numpy as np
@@ -56,6 +57,11 @@ class Args:
     target_network_frequency: int = 1
     alpha: float = 0.2
     autotune: bool = True
+
+    # training checkpoints
+    checkpoint_path: str = ""
+    reloading: bool = False
+    checkpoint_interval: int = 50_000
 
 
 def build_noise(env, args, seed):
@@ -186,6 +192,16 @@ class Actor(nn.Module):
 
 
 def main(args: Args):
+    checkpoint_path = args.checkpoint_path
+    if args.reloading:
+        assert checkpoint_path, "Must specify checkpoint file path if reloading = True."
+        assert Path(checkpoint_path).exists(), "Specified checkpoint file path must exist if reloading = True."
+        print(f"loading checkpoint from {checkpoint_path}")
+        checkpoint = torch.load(checkpoint_path, weights_only=False)
+        # reuse args from aborted run. Naturally, even if the previous run wasn't a reload, this one is.
+        checkpoint['args'].reloading = True
+        args = checkpoint['args']
+
     env_tag = args.env_id.replace("/", "-")  # dm_control ids contain a slash
     run_name = f"{env_tag}__{args.noise_mode}_{args.noise_target}_rho{args.rho}__{args.seed}"
     writer = SummaryWriter(f"runs/{run_name}")
@@ -193,10 +209,16 @@ def main(args: Args):
         torch.set_num_threads(args.torch_threads)
 
     # TRY NOT TO MODIFY: seeding
-    random.seed(args.seed)
-    np.random.seed(args.seed)
-    torch.manual_seed(args.seed)
-    torch.backends.cudnn.deterministic = args.torch_deterministic
+    if not args.reloading:
+        random.seed(args.seed)
+        np.random.seed(args.seed)
+        torch.manual_seed(args.seed)
+        torch.backends.cudnn.deterministic = args.torch_deterministic
+    else:
+        random.setstate(checkpoint['pyseed'])
+        np.random.set_state(checkpoint['npseed'])
+        torch.random.set_rng_state(checkpoint['ptseed'])
+
     device = torch.device(args.device)
 
     env = make_env(args, args.seed)
@@ -206,16 +228,21 @@ def main(args: Args):
     csv_file = None
     if args.csv_path:
         os.makedirs(os.path.dirname(args.csv_path) or ".", exist_ok=True)
-        csv_file = open(args.csv_path, "w")
-        csv_file.write("step,eval_return\n")
+        write_mode = 'a' if args.reloading else 'w'
+        csv_file = open(args.csv_path, write_mode)
+        if not args.reloading: # append to existing .csv if reloading. We do not want to repeat the header.
+            csv_file.write("step,eval_return\n")
+
+    # checkpoint_file = None
+    if args.checkpoint_path:
+        os.makedirs(os.path.dirname(checkpoint_path), exist_ok=True)
+        # checkpoint_file = open(checkpoint_path, 'wb')
 
     actor = Actor(env).to(device)
     qf1 = SoftQNetwork(env).to(device)
     qf2 = SoftQNetwork(env).to(device)
     qf1_target = SoftQNetwork(env).to(device)
     qf2_target = SoftQNetwork(env).to(device)
-    qf1_target.load_state_dict(qf1.state_dict())
-    qf2_target.load_state_dict(qf2.state_dict())
     q_optimizer = optim.Adam(list(qf1.parameters()) + list(qf2.parameters()), lr=args.q_lr)
     actor_optimizer = optim.Adam(list(actor.parameters()), lr=args.policy_lr)
 
@@ -225,16 +252,61 @@ def main(args: Args):
         log_alpha = torch.zeros(1, requires_grad=True, device=device)
         alpha = log_alpha.exp().item()
         a_optimizer = optim.Adam([log_alpha], lr=args.q_lr)
+        a_optimizer_state = a_optimizer.state_dict() # to write to checkpoint
     else:
         alpha = args.alpha
+        a_optimizer_state = None # to write to checkpoint
+
+    if not args.reloading:
+        qf1_target.load_state_dict(qf1.state_dict())
+        qf2_target.load_state_dict(qf2.state_dict())
+    else:
+        # reload Module states from checkpoint
+        actor.load_state_dict(checkpoint['actor'])
+        qf1.load_state_dict(checkpoint['qf1'])
+        qf2.load_state_dict(checkpoint['qf2'])
+        qf1_target.load_state_dict(checkpoint['qf1_target'])
+        qf2_target.load_state_dict(checkpoint['qf2_target'])
+        actor_optimizer.load_state_dict(checkpoint['actor_optimizer'])
+        q_optimizer.load_state_dict(checkpoint['q_optimizer'])
+        if not args.autotune:
+            a_optimizer.load_state_dict(checkpoint['a_optimizer'])
 
     env.observation_space.dtype = np.float32
-    rb = ReplayBuffer(args.buffer_size, env.observation_space, env.action_space, device,
-                      n_envs=1, handle_timeout_termination=False)
+
+    if not args.reloading:
+        rb = ReplayBuffer(args.buffer_size, env.observation_space, env.action_space, device,
+                        n_envs=1, handle_timeout_termination=False)
+    else:
+        rb = checkpoint['rb']
+
+    if not args.reloading: #TODO might double memory use. Hopefully not a problem for us.
+        checkpoint = {
+            "args": args,
+            "step": 0,
+
+            "actor": actor.state_dict(),
+            "qf1": qf1.state_dict(),
+            "qf2": qf2.state_dict(),
+            "qf1_target": qf1_target.state_dict(),
+            "qf2_target": qf2_target.state_dict(),
+            "actor_optimizer": actor_optimizer.state_dict(),
+            "q_optimizer": q_optimizer.state_dict(),
+            "a_optimizer": a_optimizer_state,
+
+            "pyseed": random.getstate(),
+            "npseed": np.random.get_state(),
+            "ptseed": torch.get_rng_state(),
+
+            "rb": rb #TODO directly pickling this likely will do for now, but unsafe
+        }
+
+    start_step = checkpoint['step'] + 1 if args.reloading else 0
     start_time = time.time()
 
     obs, _ = env.reset(seed=args.seed)
-    for global_step in range(args.total_timesteps):
+    for global_step in range(start_step, args.total_timesteps): 
+
         if args.eval_interval and global_step % args.eval_interval == 0:
             er = evaluate(actor, args.env_id, args.eval_episodes, device, args.seed)
             writer.add_scalar("charts/eval_return", er, global_step)
@@ -314,6 +386,33 @@ def main(args: Args):
                 writer.add_scalar("losses/qf_loss", qf_loss.item() / 2.0, global_step)
                 writer.add_scalar("losses/alpha", alpha, global_step)
                 writer.add_scalar("charts/SPS", int(global_step / (time.time() - start_time)), global_step)
+
+        #TODO checkpoint_interval not guaranteed to be synchronized w/ eval. May need to be careful. Fix?
+        if checkpoint_path and global_step % args.checkpoint_interval == 0:
+            # save checkpoint to file
+            checkpoint.update({
+                "step": global_step,
+                "actor": actor.state_dict(),
+                "qf1": qf1.state_dict(),
+                "qf2": qf2.state_dict(),
+                "qf1_target": qf1_target.state_dict(),
+                "qf2_target": qf2_target.state_dict(),
+                "actor_optimizer": actor_optimizer.state_dict(),
+                "q_optimizer": q_optimizer.state_dict(),
+                "a_optimizer": a_optimizer_state,
+
+                "pyseed": random.getstate(),
+                "npseed": np.random.get_state(),
+                "ptseed": torch.get_rng_state(),
+                }
+            )
+            print(f'saving state to {checkpoint_path}...', flush=True)
+            # tmp = checkpoint_file + '.tmp'
+            tmp = checkpoint_path + '.tmp'
+            torch.save(checkpoint, tmp)
+            # os.replace(tmp, checkpoint_file)
+            os.replace(tmp, checkpoint_path)
+            print('saved.\n', flush=True)
 
     env.close()
     if args.eval_interval:

@@ -16,7 +16,7 @@ import tyro
 @dataclass
 class Args:
     env_id: str = "HalfCheetah-v5"
-    modes: list[str] = field(default_factory=lambda: ["none", "uniform", "uniform-calibrated", "realistic"])
+    modes: list[str] = field(default_factory=lambda: ["none", "uniform-calibrated"])
     seeds: list[int] = field(default_factory=lambda: [1, 2, 3])
     rho: float = 0.1
     noise_target: str = "obs"
@@ -27,12 +27,16 @@ class Args:
     jobs: int = 4
     threads_per_job: int = 3
     outdir: str = "results"
+    checkpoint_dir: str = "checkpoints"
+    checkpoint_interval: int = 5_000
+    reloading: bool = False
 
 
 def run_one(args: Args, mode: str, seed: int) -> dict:
     env_tag = args.env_id.replace("/", "-")  # dm_control ids contain a slash
     run_name = f"{env_tag}__{mode}_{args.noise_target}_rho{args.rho}__{seed}"
     csv_path = os.path.join(args.outdir, f"{run_name}.csv")
+    checkpoint_path = os.path.join(args.checkpoint_dir, f"{run_name}.pt")
     cmd = [
         sys.executable, "scripts/sac_continuous_action.py",
         "--env-id", args.env_id,
@@ -46,7 +50,12 @@ def run_one(args: Args, mode: str, seed: int) -> dict:
         "--eval-episodes", str(args.eval_episodes),
         "--torch-threads", str(args.threads_per_job),
         "--csv-path", csv_path,
+        "--checkpoint-path", checkpoint_path,
+        "--checkpoint-interval", str(args.checkpoint_interval),
+        # "--reloading"
     ]
+    if args.reloading:
+        cmd.append('--reloading')
     env = {**os.environ, "OMP_NUM_THREADS": str(args.threads_per_job),
            "MKL_NUM_THREADS": str(args.threads_per_job)}
     t0 = time.time()
