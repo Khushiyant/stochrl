@@ -27,6 +27,9 @@ class Args:
     jobs: int = 4
     threads_per_job: int = 3
     outdir: str = "results"
+    checkpoint_dir: str = ""  # set to enable crash-safe checkpoints
+    checkpoint_interval: int = 50_000
+    reloading: bool = False  # resume every cell from its checkpoint
 
 
 def run_one(args: Args, mode: str, seed: int) -> dict:
@@ -47,6 +50,11 @@ def run_one(args: Args, mode: str, seed: int) -> dict:
         "--torch-threads", str(args.threads_per_job),
         "--csv-path", csv_path,
     ]
+    if args.checkpoint_dir:
+        cmd += ["--checkpoint-path", os.path.join(args.checkpoint_dir, f"{run_name}.pt"),
+                "--checkpoint-interval", str(args.checkpoint_interval)]
+        if args.reloading and os.path.exists(os.path.join(args.checkpoint_dir, f"{run_name}.pt")):
+            cmd.append("--reloading")
     env = {**os.environ, "OMP_NUM_THREADS": str(args.threads_per_job),
            "MKL_NUM_THREADS": str(args.threads_per_job)}
     t0 = time.time()
@@ -62,6 +70,8 @@ def run_one(args: Args, mode: str, seed: int) -> dict:
 
 def main(args: Args):
     os.makedirs(args.outdir, exist_ok=True)
+    if args.checkpoint_dir:
+        os.makedirs(args.checkpoint_dir, exist_ok=True)
     modes = args.modes
     if args.noise_target == "transition":
         keep = [m for m in modes if m in ("none", "uniform", "uniform-calibrated")]

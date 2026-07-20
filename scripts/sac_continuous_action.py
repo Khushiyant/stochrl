@@ -22,6 +22,7 @@ from torch.utils.tensorboard import SummaryWriter
 
 from stochrl import (ActionNoise, ObservationNoise, TransitionNoise,
                      collect_signal_stats, make_flat, presets)
+from stochrl.checkpoint import restore_env, snapshot_env
 
 
 @dataclass
@@ -44,6 +45,11 @@ class Args:
     eval_episodes: int = 5
     csv_path: str = ""
     torch_threads: int = 0
+
+    # checkpointing (crash-safe, deterministic resume)
+    checkpoint_path: str = ""
+    checkpoint_interval: int = 50_000
+    reloading: bool = False
 
     # SAC hyperparameters (CleanRL defaults)
     buffer_size: int = int(1e6)
@@ -205,6 +211,15 @@ class Actor(nn.Module):
 
 
 def main(args: Args):
+    ckpt = None
+    if args.reloading:
+        assert args.checkpoint_path and os.path.exists(args.checkpoint_path), \
+            "reloading needs an existing --checkpoint-path"
+        print(f"resuming from {args.checkpoint_path}", flush=True)
+        ckpt = torch.load(args.checkpoint_path, weights_only=False)
+        args = ckpt["args"]  # continue the aborted run with its own config
+        args.reloading = True
+
     env_tag = args.env_id.replace("/", "-")  # dm_control ids contain a slash
     run_name = f"{env_tag}__{args.noise_mode}_{args.noise_target}_rho{args.rho}__{args.seed}"
     writer = SummaryWriter(f"runs/{run_name}")
@@ -225,8 +240,15 @@ def main(args: Args):
     csv_file = None
     if args.csv_path:
         os.makedirs(os.path.dirname(args.csv_path) or ".", exist_ok=True)
-        csv_file = open(args.csv_path, "w")
-        csv_file.write("step,eval_return\n")
+        if args.reloading and os.path.exists(args.csv_path):
+            # drop rows at/after the resume step so re-run evals don't duplicate
+            keep = [ln for ln in open(args.csv_path)
+                    if ln.startswith("step") or int(ln.split(",")[0]) < ckpt["step"]]
+            open(args.csv_path, "w").writelines(keep)
+            csv_file = open(args.csv_path, "a")
+        else:
+            csv_file = open(args.csv_path, "w")
+            csv_file.write("step,eval_return\n")
 
     actor = Actor(env).to(device)
     qf1 = SoftQNetwork(env).to(device)
@@ -252,8 +274,52 @@ def main(args: Args):
                       n_envs=1, handle_timeout_termination=False)
     start_time = time.time()
 
-    obs, _ = env.reset(seed=args.seed)
-    for global_step in range(args.total_timesteps):
+    if args.reloading:
+        actor.load_state_dict(ckpt["actor"])
+        qf1.load_state_dict(ckpt["qf1"])
+        qf2.load_state_dict(ckpt["qf2"])
+        qf1_target.load_state_dict(ckpt["qf1_target"])
+        qf2_target.load_state_dict(ckpt["qf2_target"])
+        actor_optimizer.load_state_dict(ckpt["actor_optimizer"])
+        q_optimizer.load_state_dict(ckpt["q_optimizer"])
+        if args.autotune:
+            with torch.no_grad():
+                log_alpha.copy_(ckpt["log_alpha"].to(device))
+            alpha = log_alpha.exp().item()
+            a_optimizer.load_state_dict(ckpt["a_optimizer"])
+        rb = ckpt["rb"]
+        restore_env(env, ckpt["env_state"])
+        random.setstate(ckpt["py_rng"])
+        np.random.set_state(ckpt["np_rng"])
+        torch.random.set_rng_state(ckpt["torch_rng"])
+        obs = ckpt["obs"]
+        start_step = ckpt["step"]  # obs/env_state are the entry state for this step
+    else:
+        obs, _ = env.reset(seed=args.seed)
+        start_step = 0
+
+    def save_checkpoint(step):
+        payload = {
+            "args": args, "step": step, "obs": obs,
+            "actor": actor.state_dict(), "qf1": qf1.state_dict(), "qf2": qf2.state_dict(),
+            "qf1_target": qf1_target.state_dict(), "qf2_target": qf2_target.state_dict(),
+            "actor_optimizer": actor_optimizer.state_dict(), "q_optimizer": q_optimizer.state_dict(),
+            "log_alpha": log_alpha.detach().cpu() if args.autotune else None,
+            "a_optimizer": a_optimizer.state_dict() if args.autotune else None,
+            "rb": rb, "env_state": snapshot_env(env),
+            "py_rng": random.getstate(), "np_rng": np.random.get_state(),
+            "torch_rng": torch.random.get_rng_state(),
+        }
+        tmp = args.checkpoint_path + ".tmp"
+        torch.save(payload, tmp)
+        os.replace(tmp, args.checkpoint_path)  # atomic: a crash mid-write can't corrupt the checkpoint
+
+    if args.checkpoint_path:
+        os.makedirs(os.path.dirname(args.checkpoint_path) or ".", exist_ok=True)
+
+    for global_step in range(start_step, args.total_timesteps):
+        if args.checkpoint_path and global_step > start_step and global_step % args.checkpoint_interval == 0:
+            save_checkpoint(global_step)
         if args.eval_interval and global_step % args.eval_interval == 0:
             er = evaluate(actor, args.env_id, args.eval_episodes, device, args.seed)
             writer.add_scalar("charts/eval_return", er, global_step)
