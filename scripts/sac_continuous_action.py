@@ -21,7 +21,7 @@ from stable_baselines3.common.buffers import ReplayBuffer
 from torch.utils.tensorboard import SummaryWriter
 
 from stochrl import (ActionNoise, ObservationNoise, TransitionNoise,
-                     collect_signal_stats, make_flat, presets)
+                     collect_qvel_stats, collect_signal_stats, make_flat, presets)
 from stochrl.checkpoint import restore_env, snapshot_env
 
 
@@ -83,13 +83,9 @@ def build_noise(env, args, seed):
     if args.noise_target == "transition":
         if args.noise_mode not in ("uniform", "uniform-calibrated"):
             raise ValueError(f"transition noise supports uniform modes only, got {args.noise_mode}")
-        n_pos = _n_pos(env)
-        if n_pos is None:
-            raise ValueError("transition noise needs a Gymnasium MuJoCo env")
-        # calibrate on the observation velocity channels so per-channel sigma
-        # matches the observation-noise treatment at the same rho
-        stats = collect_signal_stats(make_flat(args.env_id), steps=args.calib_steps, seed=args.calib_seed)
-        model = presets.transition_gaussian(stats.scale[n_pos:], rho=args.rho,
+        # calibrate per velocity DOF from the simulator qvel (works for MuJoCo and dm_control)
+        stats = collect_qvel_stats(make_flat(args.env_id), steps=args.calib_steps, seed=args.calib_seed)
+        model = presets.transition_gaussian(stats.scale, rho=args.rho,
                                             calibrated=(args.noise_mode == "uniform-calibrated"))
         return TransitionNoise(env, model, seed=int(trans_ss.generate_state(1)[0]))
     if args.noise_target in ("obs", "both"):
@@ -288,6 +284,7 @@ def main(args: Args):
             alpha = log_alpha.exp().item()
             a_optimizer.load_state_dict(ckpt["a_optimizer"])
         rb = ckpt["rb"]
+        env.reset(seed=args.seed)  # satisfies the order enforcer; state is overwritten next
         restore_env(env, ckpt["env_state"])
         random.setstate(ckpt["py_rng"])
         np.random.set_state(ckpt["np_rng"])
