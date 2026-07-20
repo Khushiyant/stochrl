@@ -105,6 +105,8 @@ def make_env(args, seed):
     return env
 
 
+# PB: I propose to create the environment outside of the evaluate function, reset it with a different seed there so you do not always evaluate on the same initial states
+# PB: your evaluation function should reflect the noise level the agent was trained on (in the best case you evaluate on both a clean and noisy environment, i.e. 2 eval envs and 2 calls to `evaluate`)
 def evaluate(actor, env_id, episodes, device, seed):
     """Mean-action eval on a clean env."""
     eval_env = make_flat(env_id)
