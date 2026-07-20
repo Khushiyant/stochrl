@@ -22,6 +22,9 @@ class ObservationNoise(gym.ObservationWrapper):
         return self.model(obs, self._rng)
 
 
+# PB: as discussed, it would be very interesting to have a wrapper that applies noise to states directly.
+
+
 class ActionNoise(gym.ActionWrapper):
     """Apply a NoiseModel to actions before they reach the environment."""
 

@@ -32,7 +32,9 @@ class Args:
     torch_deterministic: bool = True
 
     # noise
-    noise_mode: str = "none"  # none | uniform | uniform-calibrated | fixed-<stat> | realistic | {vel,pos}-{flat,statedep} | both-{ff,sf,fs,ss}
+    noise_mode: str = (
+        "none"  # none | uniform | uniform-calibrated | fixed-<stat> | realistic | {vel,pos}-{flat,statedep} | both-{ff,sf,fs,ss}
+    )
     noise_target: str = "obs"  # obs | action | both
     rho: float = 0.1
     calib_steps: int = 10_000
@@ -64,6 +66,7 @@ def build_noise(env, args, seed):
         return env
     obs_ss, act_ss = np.random.SeedSequence(seed).spawn(2)
     if args.noise_target in ("obs", "both"):
+        # PB: you can precompute and safe to a json and only compute if stats for given env are not found
         stats = collect_signal_stats(make_flat(args.env_id), steps=args.calib_steps, seed=args.calib_seed)
         # pos/vel split from the MuJoCo model
         try:
@@ -73,20 +76,19 @@ def build_noise(env, args, seed):
         if args.noise_mode == "realistic":
             model = presets.realistic_sensors(stats, rho=args.rho, n_pos=n_pos)
         elif args.noise_mode in ("vel-flat", "vel-statedep", "pos-flat", "pos-statedep"):
-            model = presets.channel_isolation(
-                stats, args.rho, args.env_id, args.noise_mode, args.calib_steps,
-                args.calib_seed, n_pos=n_pos)
+            model = presets.channel_isolation(stats, args.rho, args.env_id, args.noise_mode, args.calib_steps, args.calib_seed, n_pos=n_pos)
         elif args.noise_mode.startswith("both-"):
             kinds = {"f": "flat", "s": "statedep"}
             code = args.noise_mode.split("-")[1]  # e.g. 'sf' -> vel=statedep, pos=flat
             model = presets.combined_isolation(
-                stats, args.rho, args.env_id, kinds[code[0]], kinds[code[1]],
-                args.calib_steps, args.calib_seed, n_pos=n_pos)
+                stats, args.rho, args.env_id, kinds[code[0]], kinds[code[1]], args.calib_steps, args.calib_seed, n_pos=n_pos
+            )
         elif args.noise_mode.startswith("fixed-"):
             model = presets.fixed_gaussian(stats, rho=args.rho, stat=args.noise_mode.split("-")[1])
         else:
-            model = presets.uniform_gaussian(
-                stats, rho=args.rho, calibrated=(args.noise_mode == "uniform-calibrated"))
+            # PB: uniform is a bit misleading, I guess what you mean is homoscedastic (i.e. state-independent)
+            # PB: if I understand correctly the this is the scenario where you have the gaussian noise re-scaled by per-channel std from a random layout
+            model = presets.uniform_gaussian(stats, rho=args.rho, calibrated=(args.noise_mode == "uniform-calibrated"))
         env = ObservationNoise(env, model, seed=int(obs_ss.generate_state(1)[0]))
     if args.noise_target in ("action", "both"):
         model = presets.actuator_noise(env.action_space.shape[0], rho=args.rho)
@@ -98,6 +100,8 @@ def make_env(args, seed):
     env = make_flat(args.env_id)
     env = gym.wrappers.RecordEpisodeStatistics(env)
     env = build_noise(env, args, seed)
+    # PB: if you want full reproducibility, you also need to reset the environment with the experiment seed once to fix the initial state (otherwise the first reset will be random and not reproducible)
+    # PB: in the eval env you then need to make sure to reset with a different seed to avoid overlap in initial states
     return env
 
 
@@ -182,6 +186,8 @@ class Actor(nn.Module):
         log_prob = log_prob.sum(1, keepdim=True)
         mean = torch.tanh(mean) * self.action_scale + self.action_bias
         return action, log_prob, mean
+
+
 # end CleanRL verbatim (networks)
 
 
@@ -208,7 +214,8 @@ def main(args: Args):
         os.makedirs(os.path.dirname(args.csv_path) or ".", exist_ok=True)
         csv_file = open(args.csv_path, "w")
         csv_file.write("step,eval_return\n")
-
+    # PB: did not check after this because I assume this is verbatim CleanRL code;
+    # please let me know if there are specifics you want me to check
     actor = Actor(env).to(device)
     qf1 = SoftQNetwork(env).to(device)
     qf2 = SoftQNetwork(env).to(device)
@@ -229,8 +236,7 @@ def main(args: Args):
         alpha = args.alpha
 
     env.observation_space.dtype = np.float32
-    rb = ReplayBuffer(args.buffer_size, env.observation_space, env.action_space, device,
-                      n_envs=1, handle_timeout_termination=False)
+    rb = ReplayBuffer(args.buffer_size, env.observation_space, env.action_space, device, n_envs=1, handle_timeout_termination=False)
     start_time = time.time()
 
     obs, _ = env.reset(seed=args.seed)
