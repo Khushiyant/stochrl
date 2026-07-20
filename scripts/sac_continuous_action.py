@@ -43,6 +43,7 @@ class Args:
     # evaluation & logging
     eval_interval: int = 0
     eval_episodes: int = 5
+    eval_noisy: bool = True            # also eval on an env with the same noise model as training
     csv_path: str = ""
     torch_threads: int = 0
 
@@ -122,9 +123,8 @@ def make_env(args, seed):
     return env
 
 
-def evaluate(actor, env_id, episodes, device, seed):
-    """Mean-action eval on a clean env."""
-    eval_env = make_flat(env_id)
+def evaluate(actor, eval_env, episodes, device, seed):
+    """Mean-action eval on the given env (a clean copy, or one with the train-time noise model)."""
     returns = []
     for e in range(episodes):
         obs, _ = eval_env.reset(seed=seed + 10_000 + e)
@@ -136,7 +136,6 @@ def evaluate(actor, env_id, episodes, device, seed):
             total += float(r)
             done = term or trunc
         returns.append(total)
-    eval_env.close()
     return float(np.mean(returns))
 
 
@@ -244,7 +243,7 @@ def main(args: Args):
             csv_file = open(args.csv_path, "a")
         else:
             csv_file = open(args.csv_path, "w")
-            csv_file.write("step,eval_return\n")
+            csv_file.write("step,eval_return,eval_return_noisy\n")
 
     actor = Actor(env).to(device)
     qf1 = SoftQNetwork(env).to(device)
@@ -314,14 +313,23 @@ def main(args: Args):
     if args.checkpoint_path:
         os.makedirs(os.path.dirname(args.checkpoint_path) or ".", exist_ok=True)
 
+    # eval envs, built once: a clean copy and (optionally) one with the same noise model as training
+    # (distinct RNG seed so eval noise is independent of the training noise stream)
+    eval_env_clean = make_flat(args.env_id)
+    eval_env_noisy = None
+    if args.eval_noisy and args.noise_mode != "none":
+        eval_env_noisy = build_noise(make_flat(args.env_id), args, args.seed + 100_000)
+
     for global_step in range(start_step, args.total_timesteps):
         if args.checkpoint_path and global_step > start_step and global_step % args.checkpoint_interval == 0:
             save_checkpoint(global_step)
         if args.eval_interval and global_step % args.eval_interval == 0:
-            er = evaluate(actor, args.env_id, args.eval_episodes, device, args.seed)
+            er = evaluate(actor, eval_env_clean, args.eval_episodes, device, args.seed)
+            ern = evaluate(actor, eval_env_noisy, args.eval_episodes, device, args.seed) if eval_env_noisy else er
             writer.add_scalar("charts/eval_return", er, global_step)
+            writer.add_scalar("charts/eval_return_noisy", ern, global_step)
             if csv_file:
-                csv_file.write(f"{global_step},{er}\n")
+                csv_file.write(f"{global_step},{er},{ern}\n")
                 csv_file.flush()
 
         # ALGO LOGIC: action selection
@@ -399,11 +407,16 @@ def main(args: Args):
 
     env.close()
     if args.eval_interval:
-        er = evaluate(actor, args.env_id, args.eval_episodes, device, args.seed)
+        er = evaluate(actor, eval_env_clean, args.eval_episodes, device, args.seed)
+        ern = evaluate(actor, eval_env_noisy, args.eval_episodes, device, args.seed) if eval_env_noisy else er
         writer.add_scalar("charts/eval_return", er, args.total_timesteps)
+        writer.add_scalar("charts/eval_return_noisy", ern, args.total_timesteps)
         print(f"final clean-eval return = {er:.1f}")
         if csv_file:
-            csv_file.write(f"{args.total_timesteps},{er}\n")
+            csv_file.write(f"{args.total_timesteps},{er},{ern}\n")
+    eval_env_clean.close()
+    if eval_env_noisy is not None:
+        eval_env_noisy.close()
     if csv_file:
         csv_file.close()
     writer.close()
