@@ -46,17 +46,16 @@ def collect_signal_stats(env: gym.Env, steps: int = 20_000, seed: int = 0) -> Si
     return _rollout_stats(env, steps, seed, lambda obs: np.asarray(obs, dtype=np.float64))
 
 
-def mj_data(env):
-    """MuJoCo data handle for a Gymnasium MuJoCo or dm_control (shimmy) env, else None."""
+def _state_reader(env):
+    """Reader for the full MuJoCo state: qpos+qvel (gym) or physics.get_state (dm_control)."""
     base = env.unwrapped
     if hasattr(base, "data") and hasattr(base, "set_state"):
-        return base.data
+        return lambda _obs: np.concatenate([base.data.qpos, base.data.qvel])
     if hasattr(base, "physics"):
-        return base.physics.data
-    return None
+        return lambda _obs: base.physics.get_state().copy()
+    raise TypeError("transition noise needs a Gymnasium MuJoCo or dm_control env")
 
 
-def collect_qvel_stats(env: gym.Env, steps: int = 20_000, seed: int = 0) -> SignalStats:
-    """Per-DOF velocity stats from a random-policy rollout (for transition noise)."""
-    data = mj_data(env)
-    return _rollout_stats(env, steps, seed, lambda obs: data.qvel.copy())
+def collect_state_stats(env: gym.Env, steps: int = 20_000, seed: int = 0) -> SignalStats:
+    """Per-channel state (qpos+qvel) stats from a random-policy rollout (for transition noise)."""
+    return _rollout_stats(env, steps, seed, _state_reader(env))

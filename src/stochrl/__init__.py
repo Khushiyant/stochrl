@@ -1,6 +1,6 @@
 """stochrl: signal-calibrated, per-channel noise benchmarks for continuous control."""
 
-from .calibrate import SignalStats, collect_qvel_stats, collect_signal_stats
+from .calibrate import SignalStats, collect_signal_stats, collect_state_stats
 from .envs import make_flat
 from .noise import (
     Bias,
@@ -21,7 +21,7 @@ from .wrappers import ActionNoise, ObservationNoise, TransitionNoise
 
 __all__ = [
     "SignalStats",
-    "collect_qvel_stats",
+    "collect_state_stats",
     "collect_signal_stats",
     "make_flat",
     "NoiseModel",

@@ -21,7 +21,7 @@ from stable_baselines3.common.buffers import ReplayBuffer
 from torch.utils.tensorboard import SummaryWriter
 
 from stochrl import (ActionNoise, ObservationNoise, TransitionNoise,
-                     collect_qvel_stats, collect_signal_stats, make_flat, presets)
+                     collect_signal_stats, collect_state_stats, make_flat, presets)
 from stochrl.checkpoint import restore_env, snapshot_env
 
 
@@ -84,8 +84,8 @@ def build_noise(env, args, seed):
     if args.noise_target == "transition":
         if args.noise_mode not in ("uniform", "uniform-calibrated"):
             raise ValueError(f"transition noise supports uniform modes only, got {args.noise_mode}")
-        # calibrate per velocity DOF from the simulator qvel (works for MuJoCo and dm_control)
-        stats = collect_qvel_stats(make_flat(args.env_id), steps=args.calib_steps, seed=args.calib_seed)
+        # calibrate per state channel (qpos+qvel) so magnitude matches observation noise
+        stats = collect_state_stats(make_flat(args.env_id), steps=args.calib_steps, seed=args.calib_seed)
         model = presets.transition_gaussian(stats.scale, rho=args.rho,
                                             calibrated=(args.noise_mode == "uniform-calibrated"))
         return TransitionNoise(env, model, seed=int(trans_ss.generate_state(1)[0]))

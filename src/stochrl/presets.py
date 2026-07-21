@@ -139,16 +139,15 @@ def combined_isolation(stats: SignalStats, rho: float, env_id: str, vel_kind: st
     return N.NoiseModel(dim, stats.scale, specs, record=record)
 
 
-def transition_gaussian(vel_scale, rho: float = 0.1, calibrated: bool = True) -> N.NoiseModel:
-    """Gaussian on the nv velocity DOFs for transition noise, kept in float64.
-
-    vel_scale is the observation velocity-channel spread, so at a given rho the
-    per-channel sigma matches the observation-noise treatment on velocities.
+def transition_gaussian(state_scale, rho: float = 0.1, calibrated: bool = True) -> N.NoiseModel:
+    """Gaussian on the full MuJoCo state (qpos+qvel; dm_control get_state) for
+    transition noise, kept in float64. state_scale is the per-channel state spread,
+    so at a given rho the sigma matches the observation-noise treatment.
     """
-    nv = len(vel_scale)
-    scale = np.asarray(vel_scale) if calibrated else np.ones(nv)
-    specs = [N.ChannelNoise(_all(nv), N.Gaussian(relative=rho))]
-    return N.NoiseModel(nv, scale, specs, out_dtype=np.float64)
+    dim = len(state_scale)
+    scale = np.asarray(state_scale) if calibrated else np.ones(dim)
+    specs = [N.ChannelNoise(_all(dim), N.Gaussian(relative=rho))]
+    return N.NoiseModel(dim, scale, specs, out_dtype=np.float64)
 
 
 def actuator_noise(action_dim: int, rho: float = 0.1, record: bool = False) -> N.NoiseModel:
