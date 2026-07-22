@@ -1,0 +1,50 @@
+=== CHEETAH START Tue Jul 21 04:48:43 AM IST 2026 ===
+--- wave A: clean + obs_r005 ---
+Running 5 SAC runs (1 modes x 5 seeds), 1000000 steps each, 5 in parallel.
+
+[ok] none seed=1  13225s  -> results/cheetah/clean/dm_control-cheetah-run-v0__none_obs_rho0.0__1.csv
+[ok] none seed=5  13303s  -> results/cheetah/clean/dm_control-cheetah-run-v0__none_obs_rho0.0__5.csv
+[ok] none seed=2  13383s  -> results/cheetah/clean/dm_control-cheetah-run-v0__none_obs_rho0.0__2.csv
+[ok] none seed=4  13416s  -> results/cheetah/clean/dm_control-cheetah-run-v0__none_obs_rho0.0__4.csv
+[ok] none seed=3  13549s  -> results/cheetah/clean/dm_control-cheetah-run-v0__none_obs_rho0.0__3.csv
+
+Done: 5/5 ok in 13549s. Manifest -> results/cheetah/clean/manifest.json
+Running 5 SAC runs (1 modes x 5 seeds), 1000000 steps each, 5 in parallel.
+
+[ok] uniform-calibrated seed=5  13362s  -> results/cheetah/obs_r005/dm_control-cheetah-run-v0__uniform-calibrated_obs_rho0.05__5.csv
+[ok] uniform-calibrated seed=2  13470s  -> results/cheetah/obs_r005/dm_control-cheetah-run-v0__uniform-calibrated_obs_rho0.05__2.csv
+[ok] uniform-calibrated seed=1  13510s  -> results/cheetah/obs_r005/dm_control-cheetah-run-v0__uniform-calibrated_obs_rho0.05__1.csv
+[ok] uniform-calibrated seed=3  13558s  -> results/cheetah/obs_r005/dm_control-cheetah-run-v0__uniform-calibrated_obs_rho0.05__3.csv
+[ok] uniform-calibrated seed=4  13589s  -> results/cheetah/obs_r005/dm_control-cheetah-run-v0__uniform-calibrated_obs_rho0.05__4.csv
+
+Done: 5/5 ok in 13589s. Manifest -> results/cheetah/obs_r005/manifest.json
+--- wave B: obs_r010 + trans_r005 Tue Jul 21 08:35:12 AM IST 2026 ---
+Running 5 SAC runs (1 modes x 5 seeds), 1000000 steps each, 5 in parallel.
+
+[ok] uniform-calibrated seed=1  13501s  -> results/cheetah/obs_r010/dm_control-cheetah-run-v0__uniform-calibrated_obs_rho0.1__1.csv
+[ok] uniform-calibrated seed=2  13593s  -> results/cheetah/obs_r010/dm_control-cheetah-run-v0__uniform-calibrated_obs_rho0.1__2.csv
+[ok] uniform-calibrated seed=5  13625s  -> results/cheetah/obs_r010/dm_control-cheetah-run-v0__uniform-calibrated_obs_rho0.1__5.csv
+[ok] uniform-calibrated seed=4  13673s  -> results/cheetah/obs_r010/dm_control-cheetah-run-v0__uniform-calibrated_obs_rho0.1__4.csv
+[ok] uniform-calibrated seed=3  13769s  -> results/cheetah/obs_r010/dm_control-cheetah-run-v0__uniform-calibrated_obs_rho0.1__3.csv
+
+Done: 5/5 ok in 13769s. Manifest -> results/cheetah/obs_r010/manifest.json
+Running 5 SAC runs (1 modes x 5 seeds), 1000000 steps each, 5 in parallel.
+
+[ok] uniform-calibrated seed=2  13401s  -> results/cheetah/trans_r005/dm_control-cheetah-run-v0__uniform-calibrated_transition_rho0.05__2.csv
+[ok] uniform-calibrated seed=1  13444s  -> results/cheetah/trans_r005/dm_control-cheetah-run-v0__uniform-calibrated_transition_rho0.05__1.csv
+[ok] uniform-calibrated seed=5  13546s  -> results/cheetah/trans_r005/dm_control-cheetah-run-v0__uniform-calibrated_transition_rho0.05__5.csv
+[ok] uniform-calibrated seed=4  13549s  -> results/cheetah/trans_r005/dm_control-cheetah-run-v0__uniform-calibrated_transition_rho0.05__4.csv
+[ok] uniform-calibrated seed=3  13821s  -> results/cheetah/trans_r005/dm_control-cheetah-run-v0__uniform-calibrated_transition_rho0.05__3.csv
+
+Done: 5/5 ok in 13821s. Manifest -> results/cheetah/trans_r005/manifest.json
+--- wave C: trans_r010 Tue Jul 21 12:25:33 PM IST 2026 ---
+Running 5 SAC runs (1 modes x 5 seeds), 1000000 steps each, 5 in parallel.
+
+[ok] uniform-calibrated seed=2  10085s  -> results/cheetah/trans_r010/dm_control-cheetah-run-v0__uniform-calibrated_transition_rho0.1__2.csv
+[ok] uniform-calibrated seed=1  10087s  -> results/cheetah/trans_r010/dm_control-cheetah-run-v0__uniform-calibrated_transition_rho0.1__1.csv
+[ok] uniform-calibrated seed=3  10316s  -> results/cheetah/trans_r010/dm_control-cheetah-run-v0__uniform-calibrated_transition_rho0.1__3.csv
+[ok] uniform-calibrated seed=4  10349s  -> results/cheetah/trans_r010/dm_control-cheetah-run-v0__uniform-calibrated_transition_rho0.1__4.csv
+[ok] uniform-calibrated seed=5  10354s  -> results/cheetah/trans_r010/dm_control-cheetah-run-v0__uniform-calibrated_transition_rho0.1__5.csv
+
+Done: 5/5 ok in 10354s. Manifest -> results/cheetah/trans_r010/manifest.json
+=== CHEETAH COMPLETE Tue Jul 21 03:18:07 PM IST 2026 ===
